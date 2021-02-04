@@ -62,6 +62,7 @@ impl State {
         }
     }
 
+    #[inline(always)]
     fn transition(&self, t: Transition) -> Option<Self> {
         use Transition::*;
         let p = PROBS[(self.star - 10) as usize][t as usize];
@@ -175,7 +176,7 @@ fn calculate() {
     while states.total_prob > threshold {
         states.pop().add_transitions(&mut states);
         let mut progressed = false;
-        for magnitude in 2.. {
+        for magnitude in 1.. {
             let oom = 0.1f32.powf(magnitude as f32);
             if last_total_prob > oom {
                 progressed = states.total_prob <= last_total_prob - oom;
@@ -185,11 +186,6 @@ fn calculate() {
                 break;
             }
         }
-        if last_total_prob > 0.01 {
-            states.total_prob <= last_total_prob - 0.01
-        } else {
-            states.total_prob <= last_total_prob - 0.001
-        };
         if progressed {
             println!("{}", states.total_prob);
             last_total_prob = states.total_prob;
