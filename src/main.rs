@@ -2,12 +2,15 @@
 
 use std::collections::{BTreeSet, HashMap};
 
+use fixed::types::*;
 use lazy_static::*;
 use noisy_float::prelude::*;
 
+type F = U1F63;
+
 const UNIT: i32 = 100_000;
 
-const PROBS: [[f32; 4]; 7] = [
+const PROBS_f32: [[f32; 4]; 7] = [
     [ 0.5, 0.5, 0., 0. ],
     [ 0.45, 0., 0.55, 0. ],
     [ 0.4, 0., 0.594, 0.006 ],
@@ -16,6 +19,18 @@ const PROBS: [[f32; 4]; 7] = [
     [ 0.3, 0.679, 0., 0.021 ],
     [ 0.3, 0., 0.679, 0.021 ]
 ];
+
+lazy_static! {
+    static ref PROBS: [[F; 4]; 7] = {
+        let mut probs: [[F; 4]; 7] = Default::default();
+        for i in 0..7 {
+            for j in 0..4 {
+                probs[i][j] = F::from_num(PROBS_f32[i][j]);
+            }
+        }
+        probs
+    };
+}
 
 lazy_static! {
     static ref LEVEL: i32 = 160;
@@ -46,7 +61,7 @@ enum Transition {
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 struct State {
-    prob: N32,
+    prob: F,
     star: i32,
     spent: i32,
     downed: bool,
@@ -55,7 +70,7 @@ struct State {
 impl State {
     fn new(star: i32) -> Self {
         Self {
-            prob: n32(1.),
+            prob: F::from_num(1.),
             star,
             spent: 0,
             downed: false,
@@ -110,14 +125,14 @@ impl State {
 
 #[derive(Default)]
 struct States {
-    state_to_prob: HashMap<(i32, i32, bool), N32>,
+    state_to_prob: HashMap<(i32, i32, bool), F>,
     all_states: BTreeSet<State>,
-    successes: Vec<(N32, i32)>,
-    total_prob: N32,
+    successes: Vec<(F, i32)>,
+    total_prob: F,
     target: i32,
     push_counter: i32,
     merge_counter: i32,
-    min_prob: N32,
+    min_prob: F,
 }
 
 impl States {
@@ -128,7 +143,7 @@ impl States {
             return;
         } else {
             self.total_prob += prob;
-            self.min_prob = N32::min(self.min_prob, prob);
+            self.min_prob = F::min(self.min_prob, prob);
         }
         // merge two different probability paths of arriving at the same state
         if let Some(&old_prob) = self.state_to_prob.get(&state.key()) {
@@ -170,8 +185,8 @@ fn cost(star: i32, level: i32) -> i32 {
 }
 
 fn calculate() {
-    let mut states = States {target: 17, min_prob: n32(1.), ..Default::default()};
-    let mut last_total_prob = n32(1.0);
+    let mut states = States {target: 17, min_prob: F::from_num(1.), ..Default::default()};
+    let mut last_total_prob = F::from_num(1.0);
     let threshold = 1e-6;
     let init_state = State::new(10);
     states.push(init_state);
@@ -181,7 +196,7 @@ fn calculate() {
         for magnitude in 1.. {
             let oom = 0.1f32.powf(magnitude as f32);
             if last_total_prob > oom {
-                progressed = states.total_prob <= last_total_prob - oom;
+                progressed = states.total_prob <= last_total_prob - F::from_num(oom);
                 break;
             }
             if oom < threshold {
@@ -195,7 +210,7 @@ fn calculate() {
     }
     let mut expected_cost = 0.;
     for (p, c) in states.successes {
-        let p: f32 = p.into();
+        let p: f32 = p.to_num(); //p.into();
         expected_cost += p*(c as f32);
     }
     println!("Expected cost: {}", expected_cost * UNIT as f32);
