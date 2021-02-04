@@ -114,6 +114,8 @@ struct States {
     successes: Vec<(N32, i32)>,
     total_prob: N32,
     target: i32,
+    push_counter: i32,
+    merge_counter: i32,
 }
 
 impl States {
@@ -134,10 +136,12 @@ impl States {
             state.prob = new_prob;
             self.all_states.remove(&copy);
             self.all_states.insert(state);
+            self.merge_counter += 1;
         } else {
             self.state_to_prob.insert(state.key(), prob);
             self.all_states.insert(state);
         }
+        self.push_counter += 1;
     }
 
     fn pop(&mut self) -> State {
@@ -165,12 +169,23 @@ fn cost(star: i32, level: i32) -> i32 {
 fn calculate() {
     let mut states = States {target: 17, ..Default::default()};
     let mut last_total_prob = n32(1.0);
-    let threshold = 0.001;
+    let threshold = 1e-6;
     let init_state = State::new(10);
     states.push(init_state);
     while states.total_prob > threshold {
         states.pop().add_transitions(&mut states);
-        let progressed = if last_total_prob > 0.01 {
+        let mut progressed = false;
+        for magnitude in 2.. {
+            let oom = 0.1f32.powf(magnitude as f32);
+            if last_total_prob > oom {
+                progressed = states.total_prob <= last_total_prob - oom;
+                break;
+            }
+            if oom < threshold {
+                break;
+            }
+        }
+        if last_total_prob > 0.01 {
             states.total_prob <= last_total_prob - 0.01
         } else {
             states.total_prob <= last_total_prob - 0.001
@@ -186,6 +201,7 @@ fn calculate() {
         expected_cost += p*(c as f32);
     }
     println!("Expected cost: {}", expected_cost * UNIT as f32);
+    println!("States pushed: {}, Merges: {}", states.push_counter, states.merge_counter);
 }
 
 fn main() {
