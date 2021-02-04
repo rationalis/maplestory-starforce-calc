@@ -117,6 +117,7 @@ struct States {
     target: i32,
     push_counter: i32,
     merge_counter: i32,
+    min_prob: N32,
 }
 
 impl States {
@@ -127,6 +128,7 @@ impl States {
             return;
         } else {
             self.total_prob += prob;
+            self.min_prob = N32::min(self.min_prob, prob);
         }
         // merge two different probability paths of arriving at the same state
         if let Some(&old_prob) = self.state_to_prob.get(&state.key()) {
@@ -168,7 +170,7 @@ fn cost(star: i32, level: i32) -> i32 {
 }
 
 fn calculate() {
-    let mut states = States {target: 17, ..Default::default()};
+    let mut states = States {target: 17, min_prob: n32(1.), ..Default::default()};
     let mut last_total_prob = n32(1.0);
     let threshold = 1e-6;
     let init_state = State::new(10);
@@ -198,6 +200,7 @@ fn calculate() {
     }
     println!("Expected cost: {}", expected_cost * UNIT as f32);
     println!("States pushed: {}, Merges: {}", states.push_counter, states.merge_counter);
+    println!("Smallest prob path: {}", states.min_prob);
 }
 
 fn main() {
