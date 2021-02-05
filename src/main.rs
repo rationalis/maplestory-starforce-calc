@@ -1,16 +1,17 @@
 #![feature(map_first_last)]
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, BTreeMap, HashMap};
 
 use fixed::types::*;
 use lazy_static::*;
-use noisy_float::prelude::*;
+use priority_queue::PriorityQueue;
 
 type F = U1F63;
+type Meso = i32;
 
-const UNIT: i32 = 100_000;
+const UNIT: Meso = 100_000;
 
-const PROBS_f32: [[f32; 4]; 7] = [
+const PROBS_F32: [[f32; 4]; 7] = [
     [ 0.5, 0.5, 0., 0. ],
     [ 0.45, 0., 0.55, 0. ],
     [ 0.4, 0., 0.594, 0.006 ],
@@ -25,16 +26,14 @@ lazy_static! {
         let mut probs: [[F; 4]; 7] = Default::default();
         for i in 0..7 {
             for j in 0..4 {
-                probs[i][j] = F::from_num(PROBS_f32[i][j]);
+                probs[i][j] = F::from_num(PROBS_F32[i][j]);
             }
         }
         probs
     };
-}
-
-lazy_static! {
     static ref LEVEL: i32 = 160;
-    static ref COST: [i32; 17] = {
+    // TODO: add level-dependent cost tables
+    static ref COST: [Meso; 17] = {
         let mut cost = [0; 17];
 
         for i in 10..17 {
@@ -50,7 +49,6 @@ fn round(mesos: i32, unit: i32) -> i32 {
     (mesos + (unit / 2)) / unit * unit
 }
 
-
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum Transition {
     Up = 0,
@@ -59,11 +57,21 @@ enum Transition {
     Boom = 3,
 }
 
+#[derive(Default)]
+struct Distribution {
+    dist: Vec<(Meso, F)>
+}
+
+#[derive(Default)]
+struct TransitionTable {
+    dists: HashMap<i32, BTreeMap<i32, Distribution>>
+}
+
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 struct State {
     prob: F,
     star: i32,
-    spent: i32,
+    spent: Meso,
     downed: bool,
 }
 
@@ -108,26 +116,47 @@ impl State {
         })
     }
 
-    fn add_transitions(&self, states: &mut States) {
+    fn join(self, table: &TransitionTable) -> Vec<State> {
+        let mut dist = None;
+        if let Some(starting) = table.dists.get(&self.star) {
+            if let Some(ending) = starting.last_key_value() {
+                dist = Some(ending.1);
+            }
+        }
+        if dist.is_none() {
+            return vec!(self);
+        }
+        let dist = &dist.unwrap().dist;
+        dist.iter().map(|(c,p)| Self {
+            prob: self.prob * p,
+            spent: self.spent + c,
+            star: self.star + 1,
+            downed: false,
+        }).collect()
+    }
+
+    fn add_transitions(&self, states: &mut States, table: &mut TransitionTable) {
         use Transition::*;
         for t in &[Up, Stay, Down, Boom] {
             let next_state = self.transition(*t);
             if let Some(next_state) = next_state {
-                states.push(next_state);
+                for next_state in next_state.join(table) {
+                    states.push(next_state, table);
+                }
             }
         }
     }
 
-    fn key(&self) -> (i32, i32, bool) {
+    fn key(&self) -> (i32, Meso, bool) {
         (self.star, self.spent, self.downed)
     }
 }
 
 #[derive(Default)]
 struct States {
-    state_to_prob: HashMap<(i32, i32, bool), F>,
+    state_to_prob: HashMap<(i32, Meso, bool), F>,
     all_states: BTreeSet<State>,
-    successes: Vec<(F, i32)>,
+    successes: HashMap<Meso, F>,
     total_prob: F,
     target: i32,
     push_counter: i32,
@@ -136,10 +165,14 @@ struct States {
 }
 
 impl States {
-    fn push(&mut self, mut state: State) {
+    fn push(&mut self, mut state: State, table: &mut TransitionTable) {
         let State {prob, star, spent, downed:_} = state;
         if star == self.target {
-            self.successes.push((prob, spent));
+            if let Some(old_prob) = self.successes.get_mut(&spent) {
+                *old_prob += prob;
+            } else {
+                self.successes.insert(spent, prob);
+            }
             return;
         } else {
             self.total_prob += prob;
@@ -184,40 +217,63 @@ fn cost(star: i32, level: i32) -> i32 {
     cost_approx
 }
 
-fn calculate() {
-    let mut states = States {target: 17, min_prob: F::from_num(1.), ..Default::default()};
-    let mut last_total_prob = F::from_num(1.0);
-    let threshold = 1e-6;
-    let init_state = State::new(10);
-    states.push(init_state);
-    while states.total_prob > threshold {
-        states.pop().add_transitions(&mut states);
-        let mut progressed = false;
-        for magnitude in 1.. {
-            let oom = 0.1f32.powf(magnitude as f32);
-            if last_total_prob > oom {
-                progressed = states.total_prob <= last_total_prob - F::from_num(oom);
-                break;
+fn calculate2(level: i32) {
+    let mut table = TransitionTable::default();
+    for target in 11..18 {
+        for start in (10..target).rev() {
+            println!("Starting {} -> {}", start, target);
+            let states = calculate(start, target, level, &mut table);
+            let mut dist = Distribution::default();
+            dist.dist = states.successes.into_iter().collect();
+            if let Some(starting) = table.dists.get_mut(&start) {
+                starting.insert(target, dist);
+            } else {
+                let mut map = BTreeMap::new();
+                map.insert(target, dist);
+                table.dists.insert(start, map);
             }
-            if oom < threshold {
-                break;
-            }
-        }
-        if progressed {
-            println!("{}", states.total_prob);
-            last_total_prob = states.total_prob;
         }
     }
+}
+
+fn calculate(start: i32, target: i32, level: i32, table: &mut TransitionTable) -> States {
+    let mut states = States {target, min_prob: F::from_num(1.), ..Default::default()};
+    let mut last_total_prob = F::from_num(1.0);
+    let threshold = 1e-6;
+    let init_state = State::new(start);
+    states.push(init_state, table);
+    while states.total_prob > threshold {
+        states.pop().add_transitions(&mut states, table);
+        // let mut progressed = false;
+        // for magnitude in 1.. {
+        //     let oom = 0.1f32.powf(magnitude as f32);
+        //     if last_total_prob > oom {
+        //         progressed = states.total_prob <= last_total_prob - F::from_num(oom);
+        //         break;
+        //     }
+        //     if oom < threshold {
+        //         break;
+        //     }
+        // }
+        // if progressed {
+        //     println!("{}", states.total_prob);
+        //     last_total_prob = states.total_prob;
+        // }
+    }
     let mut expected_cost = 0.;
-    for (p, c) in states.successes {
+    for (c, p) in states.successes.iter() {
         let p: f32 = p.to_num(); //p.into();
-        expected_cost += p*(c as f32);
+        expected_cost += p*(*c as f32);
     }
     println!("Expected cost: {}", expected_cost * UNIT as f32);
     println!("States pushed: {}, Merges: {}", states.push_counter, states.merge_counter);
+    println!("Unmerged states pushed: {}", states.push_counter - states.merge_counter);
     println!("Smallest prob path: {}", states.min_prob);
+    println!("Number of success paths: {}", states.successes.len());
+    states
 }
 
 fn main() {
-    calculate();
+    // calculate(10, 17, 160, &mut TransitionTable::default());
+    calculate2(160);
 }
