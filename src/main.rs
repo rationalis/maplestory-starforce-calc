@@ -59,7 +59,41 @@ enum Transition {
 
 #[derive(Default)]
 struct Distribution {
-    dist: Vec<(Meso, F)>
+    dist: Vec<(Meso, F)>,
+    full_dist: Vec<(Meso, F)>
+}
+
+impl Distribution {
+    fn new (full_dist: Vec<(Meso, F)>) -> Self {
+        let mut small_dist = BTreeMap::new();
+
+        for &(c, p) in full_dist.iter() {
+            let c = if c > 10000 {
+                round(c, 100)
+            } else if c > 1000 {
+                round(c, 10)
+            } else {
+                c
+            };
+            if let Some(old_prob) = small_dist.get(&c) {
+                small_dist.insert(c, old_prob + p);
+            } else {
+                small_dist.insert(c, p);
+            }
+        }
+
+        let mut dist = Vec::new();
+        let mut accumulated_prob = 0f64;
+        for (&c, &p) in small_dist.iter() {
+            dist.push((c, p));
+            accumulated_prob += p.to_num::<f64>();
+            if accumulated_prob > 0.99 {
+                break;
+            }
+        }
+
+        Self {dist, full_dist}
+    }
 }
 
 #[derive(Default)]
@@ -120,17 +154,18 @@ impl State {
         let mut dist = None;
         if let Some(starting) = table.dists.get(&self.star) {
             if let Some(ending) = starting.last_key_value() {
-                dist = Some(ending.1);
+                dist = Some(ending);
             }
         }
         if dist.is_none() {
             return vec!(self);
         }
-        let dist = &dist.unwrap().dist;
+        let (end, dist) = dist.unwrap();
+        let dist = &dist.dist;
         dist.iter().map(|(c,p)| Self {
             prob: self.prob * p,
             spent: self.spent + c,
-            star: self.star + 1,
+            star: *end,
             downed: false,
         }).collect()
     }
@@ -154,8 +189,7 @@ impl State {
 
 #[derive(Default)]
 struct States {
-    state_to_prob: HashMap<(i32, Meso, bool), F>,
-    all_states: BTreeSet<State>,
+    all_states: PriorityQueue<(i32, Meso, bool), F>,
     successes: HashMap<Meso, F>,
     total_prob: F,
     target: i32,
@@ -179,27 +213,20 @@ impl States {
             self.min_prob = F::min(self.min_prob, prob);
         }
         // merge two different probability paths of arriving at the same state
-        if let Some(&old_prob) = self.state_to_prob.get(&state.key()) {
+        if let Some(&old_prob) = self.all_states.get_priority(&state.key()) {
             let new_prob = old_prob + prob;
-            self.state_to_prob.insert(state.key(), new_prob);
-            let mut copy: State = state;
-            copy.prob = old_prob;
-            state.prob = new_prob;
-            self.all_states.remove(&copy);
-            self.all_states.insert(state);
+            self.all_states.change_priority(&state.key(), new_prob);
             self.merge_counter += 1;
         } else {
-            self.state_to_prob.insert(state.key(), prob);
-            self.all_states.insert(state);
+            self.all_states.push(state.key(), prob);
         }
         self.push_counter += 1;
     }
 
     fn pop(&mut self) -> State {
-        let state = self.all_states.pop_last().unwrap();
-        self.state_to_prob.remove(&state.key());
-        self.total_prob -= state.prob;
-        state
+        let ((star, spent, downed), prob) = self.all_states.pop().unwrap();
+        self.total_prob -= prob;
+        State {prob, star, spent, downed}
     }
 }
 
@@ -221,10 +248,16 @@ fn calculate2(level: i32) {
     let mut table = TransitionTable::default();
     for target in 11..18 {
         for start in (10..target).rev() {
+            for (start, ends) in table.dists.iter() {
+                for (end, dist) in ends {
+                    println!("{} -> {} has dist size {}", start, end, dist.dist.len());
+                    let small_chances = dist.dist.iter().filter(|(c,p)| p > &1e-4).collect::<Vec<_>>().len();
+                    println!("{} items in dist are small probability", small_chances);
+                }
+            }
             println!("Starting {} -> {}", start, target);
             let states = calculate(start, target, level, &mut table);
-            let mut dist = Distribution::default();
-            dist.dist = states.successes.into_iter().collect();
+            let dist = Distribution::new(states.successes.into_iter().collect());
             if let Some(starting) = table.dists.get_mut(&start) {
                 starting.insert(target, dist);
             } else {
@@ -239,26 +272,26 @@ fn calculate2(level: i32) {
 fn calculate(start: i32, target: i32, level: i32, table: &mut TransitionTable) -> States {
     let mut states = States {target, min_prob: F::from_num(1.), ..Default::default()};
     let mut last_total_prob = F::from_num(1.0);
-    let threshold = 1e-6;
+    let threshold = 1e-3;
     let init_state = State::new(start);
     states.push(init_state, table);
     while states.total_prob > threshold {
         states.pop().add_transitions(&mut states, table);
-        // let mut progressed = false;
-        // for magnitude in 1.. {
-        //     let oom = 0.1f32.powf(magnitude as f32);
-        //     if last_total_prob > oom {
-        //         progressed = states.total_prob <= last_total_prob - F::from_num(oom);
-        //         break;
-        //     }
-        //     if oom < threshold {
-        //         break;
-        //     }
-        // }
-        // if progressed {
-        //     println!("{}", states.total_prob);
-        //     last_total_prob = states.total_prob;
-        // }
+        let mut progressed = false;
+        for magnitude in 1.. {
+            let oom = 0.1f32.powf(magnitude as f32);
+            if last_total_prob > oom {
+                progressed = states.total_prob <= last_total_prob - F::from_num(oom);
+                break;
+            }
+            if oom < threshold {
+                break;
+            }
+        }
+        if progressed {
+            println!("{}", states.total_prob);
+            last_total_prob = states.total_prob;
+        }
     }
     let mut expected_cost = 0.;
     for (c, p) in states.successes.iter() {
