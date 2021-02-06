@@ -1,6 +1,6 @@
 #![feature(map_first_last)]
 
-use std::collections::{BTreeSet, BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap};
 
 use fixed::types::*;
 use lazy_static::*;
@@ -75,7 +75,7 @@ impl Distribution {
             } else {
                 c
             };
-            if let Some(old_prob) = small_dist.get(&c) {
+            if let Some(&old_prob) = small_dist.get(&c) {
                 small_dist.insert(c, old_prob + p);
             } else {
                 small_dist.insert(c, p);
@@ -176,7 +176,7 @@ impl State {
             let next_state = self.transition(*t);
             if let Some(next_state) = next_state {
                 for next_state in next_state.join(table) {
-                    states.push(next_state, table);
+                    states.push(next_state);
                 }
             }
         }
@@ -199,7 +199,7 @@ struct States {
 }
 
 impl States {
-    fn push(&mut self, mut state: State, table: &mut TransitionTable) {
+    fn push(&mut self, state: State) {
         let State {prob, star, spent, downed:_} = state;
         if star == self.target {
             if let Some(old_prob) = self.successes.get_mut(&spent) {
@@ -251,7 +251,7 @@ fn calculate2(level: i32) {
             for (start, ends) in table.dists.iter() {
                 for (end, dist) in ends {
                     println!("{} -> {} has dist size {}", start, end, dist.dist.len());
-                    let small_chances = dist.dist.iter().filter(|(c,p)| p > &1e-4).collect::<Vec<_>>().len();
+                    let small_chances = dist.dist.iter().filter(|(_,p)| p > &1e-4).collect::<Vec<_>>().len();
                     println!("{} items in dist are small probability", small_chances);
                 }
             }
@@ -274,7 +274,7 @@ fn calculate(start: i32, target: i32, level: i32, table: &mut TransitionTable) -
     let mut last_total_prob = F::from_num(1.0);
     let threshold = 1e-3;
     let init_state = State::new(start);
-    states.push(init_state, table);
+    states.push(init_state);
     while states.total_prob > threshold {
         states.pop().add_transitions(&mut states, table);
         let mut progressed = false;
