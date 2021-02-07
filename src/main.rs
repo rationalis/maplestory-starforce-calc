@@ -1,13 +1,15 @@
+#![feature(iter_map_while)]
 #![feature(map_first_last)]
 #![feature(option_result_unwrap_unchecked)]
 
 use std::collections::{BTreeMap, HashMap};
+use std::time::SystemTime;
 
 use fixed::types::*;
 use lazy_static::*;
 use indexmap::IndexMap;
 
-type F = U1F63;
+type F = U0F64;
 type Q = IndexMap<Key, F, std::hash::BuildHasherDefault<rustc_hash::FxHasher>>;
 type Meso = i32;
 type Star = u8;
@@ -15,6 +17,14 @@ type Star = u8;
 const UNIT: Meso = 100_000;
 const STAR_LIMIT: Star = 22;
 const PROB_COUNT: usize = (STAR_LIMIT - 10) as usize;
+
+// TODO: track # booms
+// TODO: add level-dependent cost tables
+// TODO: add options for star-catching, event discounts
+// TODO: command-line options
+// TODO: save outputs to a file
+// TODO: plot outputs
+// TODO: write README
 
 const PROBS_F32: [[f32; 4]; PROB_COUNT] = [
     [ 0.5, 0.5, 0., 0. ],
@@ -32,6 +42,8 @@ const PROBS_F32: [[f32; 4]; PROB_COUNT] = [
 ];
 
 lazy_static! {
+    static ref PROB_CUTOFF: F = F::from_num(1e-12);
+    static ref ONE: F = F::from_num(1.0 - 0.5f64.powf(52.));
     static ref PROBS: [[F; 4]; PROB_COUNT] = {
         let mut probs: [[F; 4]; PROB_COUNT] = Default::default();
         for i in 0..12 {
@@ -42,7 +54,6 @@ lazy_static! {
         probs
     };
     static ref LEVEL: i32 = 160;
-    // TODO: add level-dependent cost tables
     static ref COST: [Meso; STAR_LIMIT as usize] = {
         let mut cost = [0; STAR_LIMIT as usize];
 
@@ -61,7 +72,7 @@ fn round(mesos: Meso, unit: i32) -> Meso {
 
 fn round_bucket(mesos: Meso) -> Meso {
     let c = mesos;
-    if c > 10000 {
+    if c > 10000 { // bil
         round(c, 100)
     } else if c > 1000 {
         round(c, 10)
@@ -89,7 +100,6 @@ impl Distribution {
         let mut small_dist = BTreeMap::new();
 
         for &(c, p) in full_dist.iter() {
-            let c = round_bucket(c);
             if let Some(&old_prob) = small_dist.get(&c) {
                 small_dist.insert(c, old_prob + p);
             } else {
@@ -97,7 +107,9 @@ impl Distribution {
             }
         }
 
-        let dist = small_dist.into_iter().collect();
+        let mut dist: Vec<_> = small_dist.into_iter().collect();
+        dist.sort_by_key(|(_, p)| *p);
+        dist.reverse();
 
         Self {dist, full_dist}
     }
@@ -133,14 +145,13 @@ impl std::hash::Hash for Key {
 impl State {
     fn new(star: Star, downed: bool) -> Self {
         Self {
-            prob: F::from_num(1.),
+            prob: *ONE,
             star,
             spent: 0,
             downed,
         }
     }
 
-    #[inline(always)]
     fn transition(&self, t: Transition) -> Option<Self> {
         use Transition::*;
         let p = PROBS[(self.star - 10) as usize][t as usize];
@@ -171,7 +182,7 @@ impl State {
         })
     }
 
-    fn join(self, table: &TransitionTable) -> Box<dyn Iterator<Item=State> + '_> {
+    fn join(self, table: &TransitionTable) -> Result<impl Iterator<Item=Self> + '_, Self> {
         let mut dist = None;
         if let Some(starting) = table.dists.get(&(self.star, self.downed)) {
             if let Some(ending) = starting.last_key_value() {
@@ -179,17 +190,25 @@ impl State {
             }
         }
         if dist.is_none() {
-            return Box::new(std::iter::once(self));
+            return Err(self);
         }
         let (end, dist) = dist.unwrap();
         let end = *end;
         let dist = &dist.dist;
-        Box::new(dist.iter().map(move |(c,p)| Self {
-            prob: self.prob * p,
-            spent: self.spent + c,
-            star: end,
-            downed: false,
-        }).filter(|s| s.prob > 0))
+        Ok(dist.iter()
+           .map_while(move |(c,p)| {
+               let next_p = self.prob * p;
+               if next_p.to_bits() > PROB_CUTOFF.to_bits() {
+                   Some(Self {
+                       prob: next_p,
+                       spent: self.spent + c,
+                       star: end,
+                       downed: false
+                   })
+               } else {
+                   None
+               }
+           }))
     }
 
     fn add_transitions(&self, states: &mut States, table: &mut TransitionTable) {
@@ -198,8 +217,13 @@ impl State {
             let next_state = self.transition(t);
             if let Some(next_state) = next_state {
                 let next_states = next_state.join(table);
-                for next_state in next_states {
-                    states.push(next_state);
+                match next_states {
+                    Ok(next_states) => {
+                        for next_state in next_states {
+                            states.push(next_state);
+                        }
+                    },
+                    Err(next_state) => states.push(next_state)
                 }
             }
         }
@@ -221,6 +245,7 @@ struct States {
     total_prob: F,
     target: Star,
 
+    success_push_counter: i64,
     push_counter: i64,
     merge_counter: i64,
     min_prob: F,
@@ -233,11 +258,11 @@ impl States {
     }
 
     fn sift_up(&mut self, mut idx: usize) {
-        let mut parent = (idx - 1) / 2;
-        while idx != 0 && self.get(parent) < self.get(idx) {
+        while idx != 0 {
+            let parent = (idx - 1) / 2;
+            if self.get(parent) >= self.get(idx) { return; }
             self.all_states.swap_indices(idx, parent);
             idx = parent;
-            parent = (idx - 1) / 2;
         }
     }
 
@@ -276,16 +301,14 @@ impl States {
     fn push(&mut self, state: State) {
         let State {prob, star, spent, downed:_} = state;
         if star == self.target {
-            if let Some(old_prob) = self.successes.get_mut(&spent) {
-                *old_prob += prob;
-            } else {
-                self.successes.insert(spent, prob);
-            }
+            self.success_push_counter += 1;
+            self.successes.entry(spent)
+                .and_modify(|v| {*v += prob;})
+                .or_insert(prob);
             return;
-        } else {
-            self.total_prob += prob;
-            self.min_prob = F::min(self.min_prob, prob);
         }
+        self.total_prob += prob;
+        self.min_prob = F::min(self.min_prob, prob);
         // merge two different probability paths of arriving at the same state
         let ct = &mut self.merge_counter;
         let entry = self.all_states.entry(state.key());
@@ -322,12 +345,18 @@ fn cost(star: Star, level: i32) -> i32 {
 }
 
 fn calculate2(level: i32) {
+    let mut ct = 0i64;
+    let start_time = SystemTime::now();
     let mut table = TransitionTable::default();
     for target in 11..STAR_LIMIT {
         for start in (10..target).rev() {
             for &downed in &[false, true] {
                 println!("Starting {} downed: {} -> {}", start, downed, target);
                 let states = calculate(State::new(start, downed), target, level, &mut table);
+                let t = start_time.elapsed().unwrap();
+                ct += states.push_counter;
+                println!("{} pushes in {} secs", ct, t.as_secs_f32());
+                println!("{} pushes/s", ct as f32 / t.as_secs_f32());
                 let dist = Distribution::new(states.successes.into_iter().collect());
                 if let Some(starting) = table.dists.get_mut(&(start, downed)) {
                     starting.insert(target, dist);
@@ -344,9 +373,9 @@ fn calculate2(level: i32) {
 fn calculate(start: State, target: Star, level: i32, table: &mut TransitionTable) -> States {
     let mut states = States {
         target,
-        min_prob: F::from_num(1.),
+        min_prob: *ONE,
         ..Default::default()};
-    let mut last_total_prob = F::from_num(1.0);
+    let mut last_total_prob = *ONE;
     let threshold = if target <= 17 { 1e-5 } else { 1e-4 };
     states.push(start);
     while states.total_prob > threshold {
@@ -375,10 +404,11 @@ fn calculate(start: State, target: Star, level: i32, table: &mut TransitionTable
         let p: f64 = p.to_num(); //p.into();
         expected_cost += p*(*c as f64);
     }
-    println!("Expected cost: {}", (expected_cost * UNIT as f64) as i32);
+    println!("Expected cost: {}", (expected_cost * UNIT as f64) as i64);
     println!("States pushed: {}, Merges: {}", states.push_counter, states.merge_counter);
     println!("Unmerged states pushed: {}", states.push_counter - states.merge_counter);
-    println!("Smallest prob path: {}", states.min_prob);
+    println!("Success states pushed: {}", states.success_push_counter);
+    println!("Smallest non-success prob path: {}", states.min_prob);
     println!("Max len: {}", states.max_len);
     println!("End len: {}", states.all_states.len());
     println!("Number of success paths: {}", states.successes.len());
