@@ -8,7 +8,7 @@ use lazy_static::*;
 use indexmap::IndexMap;
 
 type F = U1F63;
-type Q = IndexMap<(Star, Meso, bool), F, std::hash::BuildHasherDefault<rustc_hash::FxHasher>>;
+type Q = IndexMap<Key, F, std::hash::BuildHasherDefault<rustc_hash::FxHasher>>;
 type Meso = i32;
 type Star = u8;
 
@@ -116,6 +116,20 @@ struct State {
     downed: bool,
 }
 
+#[derive(Eq, PartialEq)]
+struct Key {
+    star: Star,
+    spent: Meso,
+    downed: bool
+}
+
+impl std::hash::Hash for Key {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let k = ((self.star as i32) << 24) | self.spent | ((self.downed as i32) << 31);
+        k.hash(state);
+    }
+}
+
 impl State {
     fn new(star: Star, downed: bool) -> Self {
         Self {
@@ -157,7 +171,7 @@ impl State {
         })
     }
 
-    fn join(self, table: &TransitionTable) -> Vec<State> {
+    fn join(self, table: &TransitionTable) -> Box<dyn Iterator<Item=State> + '_> {
         let mut dist = None;
         if let Some(starting) = table.dists.get(&(self.star, self.downed)) {
             if let Some(ending) = starting.last_key_value() {
@@ -165,18 +179,17 @@ impl State {
             }
         }
         if dist.is_none() {
-            return vec!(self);
+            return Box::new(std::iter::once(self));
         }
         let (end, dist) = dist.unwrap();
+        let end = *end;
         let dist = &dist.dist;
-        let out_dist = dist.iter().map(|(c,p)| Self {
+        Box::new(dist.iter().map(move |(c,p)| Self {
             prob: self.prob * p,
             spent: self.spent + c,
-            star: *end,
+            star: end,
             downed: false,
-        }).filter(|s| s.prob > 0)
-            .collect();
-        out_dist
+        }).filter(|s| s.prob > 0))
     }
 
     fn add_transitions(&self, states: &mut States, table: &mut TransitionTable) {
@@ -192,8 +205,12 @@ impl State {
         }
     }
 
-    fn key(&self) -> (Star, Meso, bool) {
-        (self.star, self.spent, self.downed)
+    fn key(&self) -> Key {
+        Key {
+            star: self.star,
+            spent: self.spent,
+            downed: self.downed,
+        }
     }
 }
 
@@ -250,7 +267,7 @@ impl States {
         }
     }
 
-    fn heap_pop(&mut self) -> ((Star, Meso, bool), F) {
+    fn heap_pop(&mut self) -> (Key, F) {
         let popped = self.all_states.swap_remove_index(0);
         self.sift_down();
         unsafe {popped.unwrap_unchecked()}
@@ -282,7 +299,7 @@ impl States {
     }
 
     fn pop(&mut self) -> State {
-        let ((star, spent, downed), prob) = self.heap_pop();
+        let (Key { star, spent, downed }, prob) = self.heap_pop();
         self.total_prob -= prob;
         State {prob, star, spent, downed}
     }
