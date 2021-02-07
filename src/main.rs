@@ -1,13 +1,14 @@
 #![feature(map_first_last)]
+#![feature(option_result_unwrap_unchecked)]
 
 use std::collections::{BTreeMap, HashMap};
 
 use fixed::types::*;
 use lazy_static::*;
-use priority_queue::PriorityQueue;
+use indexmap::IndexMap;
 
 type F = U1F63;
-type Q = PriorityQueue<(Star, Meso, bool), F, std::hash::BuildHasherDefault<rustc_hash::FxHasher>>;
+type Q = IndexMap<(Star, Meso, bool), F, std::hash::BuildHasherDefault<rustc_hash::FxHasher>>;
 type Meso = i32;
 type Star = u8;
 
@@ -132,23 +133,27 @@ impl State {
         if p == 0. {
             return None;
         }
+        let mut next_downed = false;
         let mut spent = self.spent + COST[self.star as usize];
         let next_star = match t {
             Up => self.star + 1,
             Stay => self.star,
-            Down if self.downed => self.star,
-            Down => self.star - 1,
+            Down if self.downed => {
+                spent += COST[(self.star - 1) as usize];
+                self.star
+            },
+            Down => {
+                next_downed = true;
+                self.star - 1
+            },
             Boom => 12
         };
-        if self.downed && t == Transition::Down {
-            spent += COST[(self.star - 1) as usize];
-        }
         let spent = round_bucket(spent);
         Some(Self {
             prob: self.prob * p,
             star: next_star,
             spent,
-            downed: t == Transition::Down && !self.downed,
+            downed: next_downed,
         })
     }
 
@@ -169,7 +174,8 @@ impl State {
             spent: self.spent + c,
             star: *end,
             downed: false,
-        }).collect();
+        }).filter(|s| s.prob > 0)
+            .collect();
         out_dist
     }
 
@@ -197,12 +203,59 @@ struct States {
     successes: HashMap<Meso, F>,
     total_prob: F,
     target: Star,
+
     push_counter: i64,
     merge_counter: i64,
     min_prob: F,
+    max_len: i32,
 }
 
 impl States {
+    fn get(&self, idx: usize) -> F {
+        unsafe {*self.all_states.get_index(idx).unwrap_unchecked().1}
+    }
+
+    fn sift_up(&mut self, mut idx: usize) {
+        let mut parent = (idx - 1) / 2;
+        while idx != 0 && self.get(parent) < self.get(idx) {
+            self.all_states.swap_indices(idx, parent);
+            idx = parent;
+            parent = (idx - 1) / 2;
+        }
+    }
+
+    fn sift_down(&mut self) {
+        let len = self.all_states.len();
+        let mut idx = 0;
+        let mut left_child = 2*idx + 1;
+        let mut right_child = 2*idx + 2;
+        while left_child < len {
+            let mut max_val = self.get(left_child);
+            let mut max_child = left_child;
+            if right_child < len {
+                let right_val = self.get(right_child);
+                if right_val > max_val {
+                    max_val = right_val;
+                    max_child = right_child;
+                }
+            }
+            if max_val > self.get(idx) {
+                self.all_states.swap_indices(idx, max_child);
+                idx = max_child;
+                left_child = 2*idx + 1;
+                right_child = 2*idx + 2;
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn heap_pop(&mut self) -> ((Star, Meso, bool), F) {
+        let popped = self.all_states.swap_remove_index(0);
+        self.sift_down();
+        unsafe {popped.unwrap_unchecked()}
+    }
+
     fn push(&mut self, state: State) {
         let State {prob, star, spent, downed:_} = state;
         if star == self.target {
@@ -217,18 +270,19 @@ impl States {
             self.min_prob = F::min(self.min_prob, prob);
         }
         // merge two different probability paths of arriving at the same state
-        if let Some(&old_prob) = self.all_states.get_priority(&state.key()) {
-            let new_prob = old_prob + prob;
-            self.all_states.change_priority(&state.key(), new_prob);
-            self.merge_counter += 1;
-        } else {
-            self.all_states.push(state.key(), prob);
-        }
+        let ct = &mut self.merge_counter;
+        let entry = self.all_states.entry(state.key());
+        let idx = entry.index();
+        entry.and_modify(|old| {*old += prob; *ct += 1;})
+            .or_insert(prob);
+        self.sift_up(idx);
+
         self.push_counter += 1;
+        self.max_len = std::cmp::max(self.max_len, self.all_states.len() as i32);
     }
 
     fn pop(&mut self) -> State {
-        let ((star, spent, downed), prob) = self.all_states.pop().unwrap();
+        let ((star, spent, downed), prob) = self.heap_pop();
         self.total_prob -= prob;
         State {prob, star, spent, downed}
     }
@@ -304,10 +358,12 @@ fn calculate(start: State, target: Star, level: i32, table: &mut TransitionTable
         let p: f64 = p.to_num(); //p.into();
         expected_cost += p*(*c as f64);
     }
-    println!("Expected cost: {}", expected_cost * UNIT as f64);
+    println!("Expected cost: {}", (expected_cost * UNIT as f64) as i32);
     println!("States pushed: {}, Merges: {}", states.push_counter, states.merge_counter);
     println!("Unmerged states pushed: {}", states.push_counter - states.merge_counter);
     println!("Smallest prob path: {}", states.min_prob);
+    println!("Max len: {}", states.max_len);
+    println!("End len: {}", states.all_states.len());
     println!("Number of success paths: {}", states.successes.len());
     states
 }
