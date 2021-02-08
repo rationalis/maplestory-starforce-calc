@@ -42,7 +42,7 @@ const PROBS_F32: [[f32; 4]; PROB_COUNT] = [
 ];
 
 lazy_static! {
-    static ref PROB_CUTOFF: F = F::from_num(1e-12);
+    static ref PROB_CUTOFF: F = F::from_num(1e-14);
     static ref ONE: F = F::from_num(1.0 - 0.5f64.powf(52.));
     static ref PROBS: [[F; 4]; PROB_COUNT] = {
         let mut probs: [[F; 4]; PROB_COUNT] = Default::default();
@@ -72,7 +72,11 @@ fn round(mesos: Meso, unit: i32) -> Meso {
 
 fn round_bucket(mesos: Meso) -> Meso {
     let c = mesos;
-    if c > 10000 { // bil
+    if c > 1_000_000 { // 100 bil
+        round(c, 10_000)
+    } else if c > 100_000 { // 10 bil
+        round(c, 1000)
+    } else if c > 10000 { // bil
         round(c, 100)
     } else if c > 1000 {
         round(c, 10)
@@ -100,6 +104,7 @@ impl Distribution {
         let mut small_dist = BTreeMap::new();
 
         for &(c, p) in full_dist.iter() {
+            debug_assert!(c == round_bucket(c));
             if let Some(&old_prob) = small_dist.get(&c) {
                 small_dist.insert(c, old_prob + p);
             } else {
@@ -201,7 +206,7 @@ impl State {
                if next_p.to_bits() > PROB_CUTOFF.to_bits() {
                    Some(Self {
                        prob: next_p,
-                       spent: self.spent + c,
+                       spent: round_bucket(self.spent + c),
                        star: end,
                        downed: false
                    })
@@ -245,8 +250,10 @@ struct States {
     total_prob: F,
     target: Star,
 
+    success_prob: F,
     success_push_counter: i64,
     push_counter: i64,
+    pop_counter: i64,
     merge_counter: i64,
     min_prob: F,
     max_len: i32,
@@ -294,6 +301,7 @@ impl States {
 
     fn heap_pop(&mut self) -> (Key, F) {
         let popped = self.all_states.swap_remove_index(0);
+        self.pop_counter += 1;
         self.sift_down();
         unsafe {popped.unwrap_unchecked()}
     }
@@ -301,6 +309,7 @@ impl States {
     fn push(&mut self, state: State) {
         let State {prob, star, spent, downed:_} = state;
         if star == self.target {
+            self.success_prob += prob;
             self.success_push_counter += 1;
             self.successes.entry(spent)
                 .and_modify(|v| {*v += prob;})
@@ -348,7 +357,7 @@ fn calculate2(level: i32) {
     let mut ct = 0i64;
     let start_time = SystemTime::now();
     let mut table = TransitionTable::default();
-    for target in 11..STAR_LIMIT {
+    for target in 11..STAR_LIMIT+1 {
         for start in (10..target).rev() {
             for &downed in &[false, true] {
                 println!("Starting {} downed: {} -> {}", start, downed, target);
@@ -376,12 +385,12 @@ fn calculate(start: State, target: Star, level: i32, table: &mut TransitionTable
         min_prob: *ONE,
         ..Default::default()};
     let mut last_total_prob = *ONE;
-    let threshold = if target <= 17 { 1e-5 } else { 1e-4 };
+    let threshold = 1e-6;
     states.push(start);
     while states.total_prob > threshold {
         states.pop().add_transitions(&mut states, table);
-        if true {
-        // if cfg!(debug_assertions) {
+        // if true {
+        if cfg!(debug_assertions) {
             let mut progressed = false;
             for magnitude in 1.. {
                 let oom = 0.1f32.powf(magnitude as f32);
@@ -399,19 +408,24 @@ fn calculate(start: State, target: Star, level: i32, table: &mut TransitionTable
             }
         }
     }
-    let mut expected_cost = 0.;
-    for (c, p) in states.successes.iter() {
-        let p: f64 = p.to_num(); //p.into();
-        expected_cost += p*(*c as f64);
+    if cfg!(debug_assertions) {
+        let mut expected_cost = 0.;
+        for (c, p) in states.successes.iter() {
+            let p: f64 = p.to_num(); //p.into();
+            expected_cost += p*(*c as f64);
+        }
+        println!("Expected cost: {}", (expected_cost * UNIT as f64) as i64);
+        println!("Max cost: {}", (*states.successes.keys().max().unwrap() as f64 * UNIT as f64) as i64);
+        println!("States popped: {}", states.pop_counter);
+        println!("States pushed: {}, Merges: {}", states.push_counter, states.merge_counter);
+        println!("Unmerged states pushed: {}", states.push_counter - states.merge_counter);
+        println!("Success states pushed: {}", states.success_push_counter);
+        println!("Vanished prob: {}", 1.0 - states.total_prob.to_num::<f64>() - states.success_prob.to_num::<f64>());
+        println!("Smallest non-success prob path: {}", states.min_prob);
+        println!("Max len: {}", states.max_len);
+        println!("End len: {}", states.all_states.len());
+        println!("Number of success paths: {}", states.successes.len());
     }
-    println!("Expected cost: {}", (expected_cost * UNIT as f64) as i64);
-    println!("States pushed: {}, Merges: {}", states.push_counter, states.merge_counter);
-    println!("Unmerged states pushed: {}", states.push_counter - states.merge_counter);
-    println!("Success states pushed: {}", states.success_push_counter);
-    println!("Smallest non-success prob path: {}", states.min_prob);
-    println!("Max len: {}", states.max_len);
-    println!("End len: {}", states.all_states.len());
-    println!("Number of success paths: {}", states.successes.len());
     states
 }
 
