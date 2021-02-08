@@ -3,14 +3,16 @@
 #![feature(option_result_unwrap_unchecked)]
 
 use std::collections::{BTreeMap, HashMap};
+use std::hash::{BuildHasherDefault, Hash, Hasher};
 use std::time::SystemTime;
 
-use fixed::types::*;
-use lazy_static::*;
+use fixed::types::U0F64;
 use indexmap::IndexMap;
+use lazy_static::*;
+use rustc_hash::FxHasher;
 
 type F = U0F64;
-type Q = IndexMap<Key, F, std::hash::BuildHasherDefault<rustc_hash::FxHasher>>;
+type Q = IndexMap<Key, F, BuildHasherDefault<FxHasher>>;
 type Meso = i32;
 type Star = u8;
 
@@ -18,7 +20,7 @@ const UNIT: Meso = 100_000;
 const STAR_LIMIT: Star = 22;
 const PROB_COUNT: usize = (STAR_LIMIT - 10) as usize;
 
-// TODO: track # booms
+// TODO: also calculate # booms (independently)
 // TODO: add level-dependent cost tables
 // TODO: add options for star-catching, event discounts
 // TODO: command-line options
@@ -105,11 +107,9 @@ impl Distribution {
 
         for &(c, p) in full_dist.iter() {
             debug_assert!(c == round_bucket(c));
-            if let Some(&old_prob) = small_dist.get(&c) {
-                small_dist.insert(c, old_prob + p);
-            } else {
-                small_dist.insert(c, p);
-            }
+            small_dist.entry(c)
+                .and_modify(|old_prob| *old_prob += p)
+                .or_insert(p);
         }
 
         let mut dist: Vec<_> = small_dist.into_iter().collect();
@@ -125,7 +125,7 @@ struct TransitionTable {
     dists: HashMap<(Star, bool), BTreeMap<Star, Distribution>>
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 struct State {
     prob: F,
     star: Star,
@@ -140,8 +140,8 @@ struct Key {
     downed: bool
 }
 
-impl std::hash::Hash for Key {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl Hash for Key {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         let k = ((self.star as i32) << 24) | self.spent | ((self.downed as i32) << 31);
         k.hash(state);
     }
