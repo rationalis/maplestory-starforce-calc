@@ -2,16 +2,17 @@
 #![feature(map_first_last)]
 #![feature(option_result_unwrap_unchecked)]
 
-use std::collections::{BTreeMap, HashMap};
+use std::cmp::max;
+use std::collections::BTreeMap;
 use std::hash::{BuildHasherDefault, Hash, Hasher};
 use std::time::SystemTime;
 
-use fixed::types::U0F64;
 use indexmap::IndexMap;
 use lazy_static::*;
-use rustc_hash::FxHasher;
+use rustc_hash::{FxHasher, FxHashMap};
+use noisy_float::prelude::*;
 
-type F = U0F64;
+type F = R64;
 type Q = IndexMap<Key, F, BuildHasherDefault<FxHasher>>;
 type Meso = i32;
 type Star = u8;
@@ -28,7 +29,7 @@ const PROB_COUNT: usize = (STAR_LIMIT - 10) as usize;
 // TODO: plot outputs
 // TODO: write README
 
-const PROBS_F32: [[f32; 4]; PROB_COUNT] = [
+const PROBS_F64: [[f64; 4]; PROB_COUNT] = [
     [ 0.5, 0.5, 0., 0. ],
     [ 0.45, 0., 0.55, 0. ],
     [ 0.4, 0., 0.594, 0.006 ],
@@ -44,13 +45,13 @@ const PROBS_F32: [[f32; 4]; PROB_COUNT] = [
 ];
 
 lazy_static! {
-    static ref PROB_CUTOFF: F = F::from_num(1e-14);
-    static ref ONE: F = F::from_num(1.0 - 0.5f64.powf(52.));
+    static ref PROB_CUTOFF: F = f(1e-14);
+    static ref ONE: F = f(1.0 - 0.5f64.powf(52.));
     static ref PROBS: [[F; 4]; PROB_COUNT] = {
         let mut probs: [[F; 4]; PROB_COUNT] = Default::default();
         for i in 0..12 {
             for j in 0..4 {
-                probs[i][j] = F::from_num(PROBS_F32[i][j]);
+                probs[i][j] = f(PROBS_F64[i][j]);
             }
         }
         probs
@@ -66,6 +67,14 @@ lazy_static! {
 
         cost
     };
+}
+
+fn f(f: f64) -> F {
+    r64(f)
+}
+
+fn g(f: F) -> f64 {
+    f.raw()
 }
 
 fn round(mesos: Meso, unit: i32) -> Meso {
@@ -122,7 +131,8 @@ impl Distribution {
 
 #[derive(Default)]
 struct TransitionTable {
-    dists: HashMap<(Star, bool), BTreeMap<Star, Distribution>>
+    dists: [[[Distribution; 2]; (STAR_LIMIT+2) as usize]; (STAR_LIMIT+2) as usize],
+    highest: [[Star; 2]; (STAR_LIMIT+2) as usize],
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -188,22 +198,15 @@ impl State {
     }
 
     fn join(self, table: &TransitionTable) -> Result<impl Iterator<Item=Self> + '_, Self> {
-        let mut dist = None;
-        if let Some(starting) = table.dists.get(&(self.star, self.downed)) {
-            if let Some(ending) = starting.last_key_value() {
-                dist = Some(ending);
-            }
-        }
-        if dist.is_none() {
+        let end = table.highest[self.star as usize][self.downed as usize];
+        if end == 0 {
             return Err(self);
         }
-        let (end, dist) = dist.unwrap();
-        let end = *end;
-        let dist = &dist.dist;
+        let dist = &table.dists[self.star as usize][end as usize][self.downed as usize].dist;
         Ok(dist.iter()
            .map_while(move |(c,p)| {
                let next_p = self.prob * p;
-               if next_p.to_bits() > PROB_CUTOFF.to_bits() {
+               if next_p > *PROB_CUTOFF {
                    Some(Self {
                        prob: next_p,
                        spent: round_bucket(self.spent + c),
@@ -246,7 +249,7 @@ impl State {
 #[derive(Default)]
 struct States {
     all_states: Q,
-    successes: HashMap<Meso, F>,
+    successes: FxHashMap<Meso, F>,
     total_prob: F,
     target: Star,
 
@@ -327,7 +330,7 @@ impl States {
         self.sift_up(idx);
 
         self.push_counter += 1;
-        self.max_len = std::cmp::max(self.max_len, self.all_states.len() as i32);
+        self.max_len = max(self.max_len, self.all_states.len() as i32);
     }
 
     fn pop(&mut self) -> State {
@@ -367,13 +370,8 @@ fn calculate2(level: i32) {
                 println!("{} pushes in {} secs", ct, t.as_secs_f32());
                 println!("{} pushes/s", ct as f32 / t.as_secs_f32());
                 let dist = Distribution::new(states.successes.into_iter().collect());
-                if let Some(starting) = table.dists.get_mut(&(start, downed)) {
-                    starting.insert(target, dist);
-                } else {
-                    let mut map = BTreeMap::new();
-                    map.insert(target, dist);
-                    table.dists.insert((start, downed), map);
-                }
+                table.dists[start as usize][target as usize][downed as usize] = dist;
+                table.highest[start as usize][downed as usize] = target;
             }
         }
     }
@@ -393,9 +391,9 @@ fn calculate(start: State, target: Star, level: i32, table: &mut TransitionTable
         if cfg!(debug_assertions) {
             let mut progressed = false;
             for magnitude in 1.. {
-                let oom = 0.1f32.powf(magnitude as f32);
+                let oom = 0.1f64.powf(magnitude as f64);
                 if last_total_prob > oom {
-                    progressed = states.total_prob <= last_total_prob - F::from_num(oom);
+                    progressed = states.total_prob <= last_total_prob - f(oom);
                     break;
                 }
                 if oom < threshold {
@@ -408,10 +406,11 @@ fn calculate(start: State, target: Star, level: i32, table: &mut TransitionTable
             }
         }
     }
+    // if true {
     if cfg!(debug_assertions) {
         let mut expected_cost = 0.;
         for (c, p) in states.successes.iter() {
-            let p: f64 = p.to_num(); //p.into();
+            let p: f64 = g(*p);
             expected_cost += p*(*c as f64);
         }
         println!("Expected cost: {}", (expected_cost * UNIT as f64) as i64);
@@ -420,7 +419,7 @@ fn calculate(start: State, target: Star, level: i32, table: &mut TransitionTable
         println!("States pushed: {}, Merges: {}", states.push_counter, states.merge_counter);
         println!("Unmerged states pushed: {}", states.push_counter - states.merge_counter);
         println!("Success states pushed: {}", states.success_push_counter);
-        println!("Vanished prob: {}", 1.0 - states.total_prob.to_num::<f64>() - states.success_prob.to_num::<f64>());
+        println!("Vanished prob: {}", 1.0 - g(states.total_prob) - g(states.success_prob));
         println!("Smallest non-success prob path: {}", states.min_prob);
         println!("Max len: {}", states.max_len);
         println!("End len: {}", states.all_states.len());
