@@ -11,6 +11,7 @@ use indexmap::IndexMap;
 use lazy_static::*;
 use rustc_hash::{FxHasher, FxHashMap};
 use noisy_float::prelude::*;
+use serde::{Deserialize, Serialize};
 
 type F = R64;
 type Q = IndexMap<Key, F, BuildHasherDefault<FxHasher>>;
@@ -45,7 +46,7 @@ const PROBS_F64: [[f64; 4]; PROB_COUNT] = [
 ];
 
 lazy_static! {
-    static ref PROB_CUTOFF: F = f(1e-14);
+    static ref PROB_CUTOFF: F = f(1e-12);
     static ref ONE: F = f(1.0 - 0.5f64.powf(52.));
     static ref PROBS: [[F; 4]; PROB_COUNT] = {
         let mut probs: [[F; 4]; PROB_COUNT] = Default::default();
@@ -104,7 +105,196 @@ enum Transition {
     Boom = 3,
 }
 
-#[derive(Default)]
+#[derive(Clone, Debug)]
+struct Distr {
+    dist: Vec<(Meso, f64)>
+}
+
+impl Distr {
+    fn new(mut dist: Vec<(Meso, f64)>) -> Self {
+        let mut res = Self { dist };
+        res.truncate(1e-6);
+        res
+    }
+
+    fn truncate(&mut self, threshold: f64) {
+        self.dist.sort_unstable_by_key(|(_,p)| f(*p));
+        self.dist.reverse();
+        let mut total_prob = 0.0;
+        for i in 0..self.dist.len() {
+            total_prob += self.dist[i].1;
+            if total_prob > 1.0 - threshold {
+                self.dist.truncate(i+1);
+                break;
+            }
+        }
+        // renormalize
+        self.dist.iter_mut().for_each(|(_, p)| *p /= total_prob);
+    }
+
+    fn constant(c: Meso) -> Self {
+        Self {
+            dist: vec![(c, 1.0)],
+        }
+    }
+
+    fn zero() -> Self {
+        Self::constant(0)
+    }
+
+    fn binom(n: i32, p:f64) -> Self {
+        // println!("binom {} {}", n, p);
+
+        // let mut dist = FxHashMap::default();
+        let mut dist: [f64; 64] = [0.0; 64];
+        let mut coeff: i64 = 1;
+        let p2 = 1.0 - p;
+        for k in 0..=n {
+            if k > 0 {
+                coeff *= (n - k + 1) as i64;
+                coeff /= k as i64;
+            }
+            // if n >= 38 {
+            //     println!("{} {} {}", coeff, p.powi(k), p2.powi(n-k));
+            // }
+            // dist.insert(k, (coeff as f64) * p.powi(k) * p2.powi(n-k));
+            let p = coeff as f64 * p.powi(k) * p2.powi(n-k);
+            dist[k as usize] = p;
+        }
+        // if n == 0 {
+        //     let mut D: Vec<_> = dist.clone().into_iter().collect();
+        //     D.sort_unstable_by_key(|(n,_)| *n);
+        //     println!("{:?}", D);
+        // }
+        Self::new(dist.into_iter().enumerate().map(|(n, p)| (n as i32, *p)).collect())
+    }
+
+    fn geom(p: f64) -> Self {
+        let mut dist = Vec::new();
+        let mut S = 1.0;
+        let mut i = 1;
+        while S > 1e-6 {
+            dist.push((i, S*p));
+            i += 1;
+            S -= S * p;
+        }
+        Self {
+            dist
+        }
+    }
+
+    // fn downs(star: Star) {
+    //     let [up, stay, down, boom] = PROBS_F64[(star - 10) as usize];
+    //     let [downup, downstay, downdown, downboom] = PROBS_F64[(star - 11) as usize];
+    //     // downup -> scale
+    //     // downstay -> mult by distr start->target plus const (chance time removed)
+    //     // downboom -> mult by distr 12->target plus const
+    //     // downdown -> mult by distr start->target plus const (chance time removed)
+    //     let mut states: Vec<(i32, i32, i32, i32, Star, f64)>;
+    //     states.push((0,0,0,0,star,1.0));
+    //     let mut downup: Vec<(i32, f64)>;
+    //     let mut total_prob = 0.0;
+    //     while total_prob < 1.0 - 1e-6 {
+    //         ;
+    //     }
+    //     states
+    // }
+
+    /// This method is actually faster by something like 25x compared to summing
+    /// the probabilities over the compound binomial distribution.
+    fn booms(succ_rate: f64, boom_rate: f64) -> Self {
+        const MAX_BOOMS: usize = 15;
+        let mut states: [f64; MAX_BOOMS] = [0.0; MAX_BOOMS];
+        let mut successes: [f64; MAX_BOOMS] = [0.0; MAX_BOOMS];
+        states[0] = 1.0;
+        let mut total_prob = 0.0;
+        while total_prob < 1.0 - 1e-9 {
+            assert!((total_prob + states.iter().sum::<f64>() - 1.0).abs() < 1e-6);
+            for booms in 0..MAX_BOOMS {
+                let p = states[booms];
+                if p > 1e-14 {
+                    successes[booms] += p * succ_rate;
+                    total_prob += p * succ_rate;
+                    states[booms] = p * (1.0 - succ_rate - boom_rate);
+                    states[booms+1] += p * boom_rate;
+                    break;
+                }
+            }
+        }
+        Self::new(successes.into_iter().enumerate().map(|(b, p)| (b as i32, *p)).collect())
+    }
+
+    fn booms2(succ_rate: f64, boom_rate: f64) -> Self {
+        const MAX_BOOMS: usize = 15;
+        let mut dist: [f64; MAX_BOOMS] = [0.0; MAX_BOOMS];
+        let mut fails = Distr::geom(succ_rate);
+        fails.shift(-1);
+        for (n, p) in fails.dist.iter() {
+            let mut boom_subdist = Distr::binom(*n, boom_rate / (1.0 - succ_rate));
+            for (n2, p2) in boom_subdist.dist.iter() {
+                if *n2 < (MAX_BOOMS as i32) {
+                    dist[*n2 as usize] += p*p2;
+                }
+                // dist.entry(*n2)
+                //     .and_modify(|p0| *p0 += p*p2)
+                //     .or_insert(p*p2);
+            }
+        }
+        Self::new(dist.into_iter().enumerate().map(|(b, p)| (b as i32, *p)).collect())
+    }
+
+    fn prob_scale(&mut self, p: f64) -> &mut Self {
+        self.dist.iter_mut().for_each(|(_, p0)| *p0 *= p);
+        self
+    }
+
+    fn shift(&mut self, c: Meso) -> &mut Self {
+        self.dist.iter_mut().for_each(|(c0, _)| *c0 += c);
+        self
+    }
+
+    fn scale(&mut self, n: Meso) -> &mut Self {
+        self.dist.iter_mut().for_each(|(c0, _)| *c0 *= n);
+        self
+    }
+
+    fn product(&self, other: &Self) -> Self {
+        println!("mult distrs of size {} and {}", self.dist.len(), other.dist.len());
+        let mut dist = FxHashMap::default();
+        for (i, p) in self.dist.iter() {
+            for (c, p2) in other.dist.iter() {
+                dist.entry(round_bucket(i*c))
+                    .and_modify(|p0| *p0 += p*p2)
+                    .or_insert(p*p2);
+            }
+        }
+        let dist = dist.into_iter().collect();
+        println!("finish mult distrs of size {} and {}", self.dist.len(), other.dist.len());
+        Self::new(dist)
+    }
+
+    fn add(&self, other: &Self) -> Self {
+        println!("add distrs of size {} and {}", self.dist.len(), other.dist.len());
+        let mut dist = FxHashMap::default();
+        for (c, p) in self.dist.iter() {
+            for (c2, p2) in other.dist.iter() {
+                dist.entry(round_bucket(c+c2))
+                    .and_modify(|p0| *p0 += p*p2)
+                    .or_insert(p*p2);
+            }
+        }
+        let dist: Vec<_> = dist.into_iter().collect();
+        println!("finish add distrs of size {} and {}", self.dist.len(), other.dist.len());
+        println!("add result size: {}", dist.len());
+        Self::new(dist)
+    }
+
+    fn expected_cost(&self) -> f64 {
+        self.dist.iter().map(|(c, p)| (*c as f64)*p).sum()
+    }
+}
+
+#[derive(Default, Serialize, Deserialize)]
 struct Distribution {
     dist: Vec<(Meso, F)>,
     full_dist: Vec<(Meso, F)>
@@ -375,6 +565,91 @@ fn calculate2(level: i32) {
             }
         }
     }
+    let s = serde_json::to_string(&table.dists[10][22][0]).expect("failed tostr");
+    std::fs::write("output.json", s).expect("failed file write");
+}
+
+fn calculate3(level: i32) {
+    let mut table: FxHashMap<(Star, Star), Distr> = FxHashMap::default();
+    table.insert((12, 12), Distr::zero());
+    for target in 11..STAR_LIMIT+1 {
+        for start in (10..target).rev() {
+            println!("{}->{}", start, target);
+            if start != target - 1 {
+                let dist1 = table.get(&(start, start+1)).unwrap();
+                let dist2 = table.get(&(start+1, target)).unwrap();
+                let dist = dist1.add(dist2);
+                table.insert((start, target), dist);
+                continue;
+            }
+            let [up, _stay, down, boom] = PROBS_F64[(start - 10) as usize];
+            if down == 0. && boom == 0. {
+                let mut dist = Distr::geom(up);
+                dist.scale(COST[start as usize]);
+                table.insert((start, target), dist);
+                continue;
+            }
+            let mut dist = Distr::zero();
+            let mut base = Distr::geom(up);
+            // cost of attempts at start->target
+            let mut base2 = base.clone();
+            base2.scale(COST[start as usize]);
+            dist = dist.add(&base2);
+
+            if down > 0. {
+                let cost_below = COST[(start - 1) as usize];
+                let [downup, _downstay, downdown, downboom] = PROBS_F64[(start - 11) as usize];
+                // if we can go down then we need the number of failures
+                let mut base = base.clone();
+                base.shift(-1);
+                if downdown == 0. {
+                    let DS_cost = table.get(&(start-1, start)).unwrap();
+                    dist = dist.add(&base.product(&DS_cost));
+                } else {
+                }
+                // distr of cost associated with falling and immediately going back up
+                let mut DU_dist = base.clone();
+                DU_dist.prob_scale(downup).scale(cost_below);
+                dist = dist.add(&DU_dist);
+                println!("after falling and going back up, dist size {}", dist.dist.len());
+                if downdown > 0. {
+                    // we need to account for chance time (and separately, booms)
+                    let cost_two_below = COST[(start - 2) as usize];
+                    let mut DD_dist = base.clone();
+                    DD_dist.prob_scale(downdown);
+                    let mut DD_cost = table.get(&(start-1, start)).unwrap().clone();
+                    DD_cost.shift(cost_below).shift(cost_two_below);
+                    dist = dist.add(&DD_dist.product(&DD_cost));
+                    // booms
+                    if downboom > 0. {
+                        let mut DB_dist = base.clone();
+                        DB_dist.prob_scale(downboom);
+                        let DB_cost = table.get(&(12, start)).unwrap();
+                        dist = dist.add(&DB_dist.product(&DB_cost));
+                    }
+                } else {
+                }
+            }
+            println!("handling booms");
+            if boom > 0. {
+                // failures
+                let t0 = SystemTime::now();
+                let booms = Distr::booms(up, boom);
+                println!("{}", t0.elapsed().unwrap().as_secs_f32());
+                let t0 = SystemTime::now();
+                let booms2 = Distr::booms2(up, boom);
+                println!("{}", t0.elapsed().unwrap().as_secs_f32());
+                let boom_cost = table.get(&(12, start)).unwrap();
+                println!("{:?}", booms);
+                println!("{:?}", booms2);
+                // println!("{:?}", boom_cost);
+                dist = dist.add(&booms.product(boom_cost));
+            }
+            println!("storing dist of size: {}", dist.dist.len());
+            println!("Expected cost: {}", (dist.expected_cost() * UNIT as f64) as i64);
+            table.insert((start, target), dist);
+        }
+    }
 }
 
 fn calculate(start: State, target: Star, level: i32, table: &mut TransitionTable) -> States {
@@ -406,8 +681,8 @@ fn calculate(start: State, target: Star, level: i32, table: &mut TransitionTable
             }
         }
     }
-    // if true {
-    if cfg!(debug_assertions) {
+    if true {
+    // if cfg!(debug_assertions) {
         let mut expected_cost = 0.;
         for (c, p) in states.successes.iter() {
             let p: f64 = g(*p);
@@ -430,5 +705,6 @@ fn calculate(start: State, target: Star, level: i32, table: &mut TransitionTable
 
 fn main() {
     // calculate(10, 17, 160, &mut TransitionTable::default());
-    calculate2(160);
+    // calculate2(160);
+    calculate3(160);
 }
