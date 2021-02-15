@@ -9,6 +9,9 @@ pub fn calculate3(level: i32) {
     table.insert((12, 12), Distr::zero());
     let update = |table: &mut FxHashMap<_, _>, start: Star, target: Star, dist: Distr| {
         println!("{} -> {} dist size: {} expected cost: {}", start, target, dist.dist.len(), dist.expected_cost());
+        // if start == 21 {
+        //     dbg!(&dist.dist[0..100]);
+        // }
         table.insert((start, target), dist);
     };
     for target in 11..STAR_LIMIT+1 {

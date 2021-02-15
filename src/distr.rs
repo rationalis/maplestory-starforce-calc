@@ -1,6 +1,8 @@
 use crate::consts::*;
 use crate::prio::Prio;
 
+use std::hash::Hash;
+
 use rustc_hash::FxHashMap;
 
 #[derive(Clone, Debug)]
@@ -12,7 +14,7 @@ pub fn slice_to_distr(slice: &[f64]) -> Distr {
     Distr::new(slice.into_iter().enumerate().map(|(n, p)| (n as i32, *p)).collect())
 }
 
-pub fn merge_or_insert(dist: &mut FxHashMap<Meso, f64>, key: Meso, p: f64) {
+pub fn merge_or_insert<K: Eq + Hash>(dist: &mut FxHashMap<K, f64>, key: K, p: f64) {
     dist.entry(key)
         .and_modify(|p0| *p0 += p)
         .or_insert(p);
@@ -50,10 +52,9 @@ impl Distr {
         self.dist.reverse();
         let mut total_prob = 0.0;
         let mut last_key = 0;
-        let threshold = 1e-6;
         for i in 0..self.dist.len() {
             total_prob += self.dist[i].1;
-            if total_prob > 1.0 - threshold {
+            if total_prob > 1.0 - DIST_THRESHOLD {
                 last_key = self.dist[i].0;
                 self.dist.truncate(i+1);
                 break;
@@ -82,7 +83,7 @@ impl Distr {
         let mut dist = Vec::new();
         let mut remaining = 1.0;
         let mut i = 1;
-        while remaining > 1e-6 {
+        while remaining > DIST_THRESHOLD {
             dist.push((i, remaining*p));
             i += 1;
             remaining -= remaining * p;
@@ -92,7 +93,7 @@ impl Distr {
         }
     }
 
-    pub fn downs(start: Star) -> [[f64; MAX_DOWN]; 4] {
+    pub fn downs(start: Star) -> [[f64; MAX_DOWNS]; 4] {
         type State = (u8, u8, u8, u8, bool);
         let [up, stay, down, boom] = PROBS_F64[(start - 10) as usize];
         let [downup, downstay, downdown, downboom] = PROBS_F64[(start - 11) as usize];
@@ -103,12 +104,18 @@ impl Distr {
         });
         let update = |map: &mut Prio<State, (F, i32)>, elem: (F, u8, u8, u8, u8, bool)| {
             let (p, du, ds, dd, db, at_start) = elem;
+            if p == f(0.0) {
+                return;
+            }
             map.push((du, ds, dd, db, at_start), (p, -((du + ds + dd + db) as i32)));
         };
         states.push((0,0,0,0,true), (f(1.0), 0));
-        let mut output: [[f64; MAX_DOWN]; 4] = [[0.0; MAX_DOWN]; 4];
+        let mut output: [[f64; MAX_DOWNS]; 4] = [[0.0; MAX_DOWNS]; 4];
+        let mut joint: FxHashMap<(u8, u8, u8, u8), f64> = Default::default();
         let mut total_prob = 0.0;
-        while total_prob < 1.0 - 1e-6 {
+        let mut uniq_subdists = 0;
+        let mut distr_adds = 0;
+        while total_prob < 1.0 - DIST_THRESHOLD {
             let ((du, ds, dd, db, at_start), (p, _)) = states.pop();
             if p < 1e-12 {
                 continue;
@@ -123,10 +130,24 @@ impl Distr {
                     p_down += remaining * down;
                     remaining *= boom + stay;
                 }
-                output[0][du as usize] += succ;
-                output[1][ds as usize] += succ;
-                output[2][dd as usize] += succ;
-                output[3][db as usize] += succ;
+                let mut nonzero = 0;
+                for (i, &n) in [du, ds, dd, db].iter().enumerate() {
+                    if output[i][n as usize] == 0.0 {
+                        uniq_subdists += 1;
+                    }
+                    if n != 0 {
+                        nonzero += 1;
+                    }
+                    output[i][n as usize] += succ;
+                }
+                if nonzero > 1 && !joint.contains_key(&(du, ds, dd, db)) {
+                    distr_adds += nonzero - 1;
+                }
+                // output[0][du as usize] += succ;
+                // output[1][ds as usize] += succ;
+                // output[2][dd as usize] += succ;
+                // output[3][db as usize] += succ;
+                merge_or_insert(&mut joint, (du, ds, dd, db), succ);
                 total_prob += succ;
                 update(states, (p_down, du, ds, dd, db, false));
             } else {
@@ -134,20 +155,27 @@ impl Distr {
                 update(states, (p * downstay, du, ds+1, dd, db, true));
                 update(states, (p * downdown, du, ds, dd+1, db, true));
                 update(states, (p * downboom, du, ds, dd, db+1, true));
+                // dbg!((p, p*downdown, du, ds, dd+1, db));
+                // assert!(p*downdown <= (down * downdown).powi((dd+1) as i32));
             }
         }
+        let x = joint.get(&(0,0,0,0));
+        dbg!(x);
+        dbg!(output[0][0] * output[1][0] * output[2][0] * output[3][0]);
+        dbg!(joint.len());
+        dbg!(uniq_subdists);
+        dbg!(distr_adds);
         output
     }
 
     /// This method is actually faster by something like 25x compared to summing
     /// the probabilities over the compound binomial distribution.
     pub fn booms(succ_rate: f64, boom_rate: f64) -> Self {
-        const MAX_BOOMS: usize = 15;
         let mut states: [f64; MAX_BOOMS] = [0.0; MAX_BOOMS];
         let mut successes: [f64; MAX_BOOMS] = [0.0; MAX_BOOMS];
         states[0] = 1.0;
         let mut total_prob = 0.0;
-        while total_prob < 1.0 - 1e-9 {
+        while total_prob < 1.0 - DIST_THRESHOLD {
             debug_assert!((total_prob + states.iter().sum::<f64>() - 1.0).abs() < 1e-6);
             for booms in 0..MAX_BOOMS {
                 let p = states[booms];
@@ -164,12 +192,12 @@ impl Distr {
     }
 
     pub fn shift(&mut self, c: Meso) -> &mut Self {
-        self.dist.iter_mut().for_each(|(c0, _)| *c0 += c);
+        self.dist.iter_mut().for_each(|(c0, _)| *c0 = round_bucket(*c0 + c));
         self
     }
 
     pub fn scale(&mut self, n: Meso) -> &mut Self {
-        self.dist.iter_mut().for_each(|(c0, _)| *c0 *= n);
+        self.dist.iter_mut().for_each(|(c0, _)| *c0 = round_bucket(*c0 * n));
         self
     }
 
