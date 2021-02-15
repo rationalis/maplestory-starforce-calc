@@ -43,18 +43,22 @@ impl Distr {
         }
         let dist: Vec<_> = map.into_iter().collect();
         let mut res = Self { dist };
-        res.truncate();
+        res.truncate(None);
         res
     }
 
-    pub fn truncate(&mut self) {
+    pub fn truncate(&mut self, threshold: Option<f64>) {
+        let threshold = match threshold {
+            Some(p) => p,
+            None => DIST_THRESHOLD
+        };
         self.dist.sort_unstable_by_key(|(_,p)| f(*p));
         self.dist.reverse();
         let mut total_prob = 0.0;
         let mut last_key = 0;
         for i in 0..self.dist.len() {
             total_prob += self.dist[i].1;
-            if total_prob > 1.0 - DIST_THRESHOLD {
+            if total_prob > 1.0 - threshold {
                 last_key = self.dist[i].0;
                 self.dist.truncate(i+1);
                 break;
@@ -143,10 +147,6 @@ impl Distr {
                 if nonzero > 1 && !joint.contains_key(&(du, ds, dd, db)) {
                     distr_adds += nonzero - 1;
                 }
-                // output[0][du as usize] += succ;
-                // output[1][ds as usize] += succ;
-                // output[2][dd as usize] += succ;
-                // output[3][db as usize] += succ;
                 merge_or_insert(&mut joint, (du, ds, dd, db), succ);
                 total_prob += succ;
                 update(states, (p_down, du, ds, dd, db, false));
@@ -155,8 +155,6 @@ impl Distr {
                 update(states, (p * downstay, du, ds+1, dd, db, true));
                 update(states, (p * downdown, du, ds, dd+1, db, true));
                 update(states, (p * downboom, du, ds, dd, db+1, true));
-                // dbg!((p, p*downdown, du, ds, dd+1, db));
-                // assert!(p*downdown <= (down * downdown).powi((dd+1) as i32));
             }
         }
         let x = joint.get(&(0,0,0,0));
