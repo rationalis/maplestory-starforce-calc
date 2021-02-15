@@ -1,8 +1,11 @@
 use crate::consts::*;
 use crate::prio::Prio;
 
+use std::collections::BinaryHeap;
 use std::hash::Hash;
 
+use fixedbitset::FixedBitSet;
+use genawaiter::{yield_, rc::gen};
 use rustc_hash::FxHashMap;
 
 #[derive(Clone, Debug)]
@@ -199,11 +202,55 @@ impl Distr {
         self
     }
 
+    pub fn joint<'a>(dist1: &'a Distr, dist2: &'a Distr) -> impl Iterator<Item=(f64, usize, usize)> + 'a {
+        let generator = gen!({
+            let dist1 = &dist1.dist;
+            let dist2 = &dist2.dist;
+            let mut states: BinaryHeap<(F, i32, i32)> = BinaryHeap::new();
+            let mut bs: FixedBitSet = FixedBitSet::with_capacity(dist1.len() * dist2.len());
+            let unvisited = |bitset: &FixedBitSet, i:usize, j:usize| {
+                !bitset[i * dist2.len() + j]
+            };
+            let visit = |bitset: &mut FixedBitSet, i:usize, j:usize| {
+                bitset.insert(i * dist2.len() + j);
+            };
+            // let mut visited: Vec<Vec<bool>> = Vec::new();
+            // let mut row = Vec::new();
+            // row.resize(dist2.len(), false);
+            // visited.resize(dist1.len(), row);
+
+            let mut total_prob = 0.0;
+            states.push((f(dist1[0].1 * dist2[0].1), 0, 0));
+            // states.push((), ())
+            while total_prob < 1.0 - DIST_THRESHOLD {
+                let (p, i, j) = states.pop().unwrap();
+                let ii = (-i) as usize;
+                let jj = (-j) as usize;
+                if ii+1 < dist1.len() && unvisited(&bs, ii+1, jj) {
+                    states.push((f(dist1[ii+1].1 * dist2[jj].1), i-1, j));
+                    visit(&mut bs, ii+1, jj);
+                }
+                if jj+1 < dist2.len() && unvisited(&bs, ii, jj+1) {
+                    states.push((f(dist1[ii].1 * dist2[jj+1].1), i, j-1));
+                    visit(&mut bs, ii, jj+1);
+                }
+                total_prob += g(p);
+                yield_!((g(p), ii, jj));
+            }
+        });
+        generator.into_iter()
+    }
+
     pub fn product(&self, other: &Self) -> Self {
         let mut dist = FxHashMap::default();
-        for (i, p) in self.dist.iter() {
+        let mut total_prob = 0.0;
+        'outer: for (n, p) in self.dist.iter() {
             for (c, p2) in other.dist.iter() {
-                merge_or_insert(&mut dist, round_bucket(i*c), p*p2);
+                total_prob += p*p2;
+                // if total_prob > 1.0 - DIST_THRESHOLD {
+                //     break 'outer;
+                // }
+                merge_or_insert(&mut dist, round_bucket(n*c), p*p2);
             }
         }
         let dist = dist.into_iter().collect();
@@ -212,13 +259,25 @@ impl Distr {
 
     pub fn add(&self, other: &Self) -> Self {
         let mut dist = FxHashMap::default();
-        for (c, p) in self.dist.iter() {
-            for (c2, p2) in other.dist.iter() {
-                merge_or_insert(&mut dist, round_bucket(c+c2), p*p2);
-            }
+        // for (c, p) in self.dist.iter() {
+        //     for (c2, p2) in other.dist.iter() {
+        //         merge_or_insert(&mut dist, round_bucket(c+c2), p*p2);
+        //     }
+        // }
+        for (p, i, j) in Distr::joint(self, other) {
+            let c = self.dist[i].0;
+            let c2 = other.dist[j].0;
+            // dbg!(p, c, c2);
+            merge_or_insert(&mut dist, round_bucket(c+c2), p);
         }
+        let len1 = dist.len();
         let dist: Vec<_> = dist.into_iter().collect();
-        Self::new(dist)
+        let res = Self::new(dist);
+        let len2 = res.dist.len();
+        if len1 != len2 {
+            dbg!((len1, len2));
+        }
+        res
     }
 
     pub fn expected_cost(&self) -> u64 {
