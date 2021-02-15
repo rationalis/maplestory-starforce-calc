@@ -2,14 +2,10 @@
 #![feature(map_first_last)]
 #![feature(option_result_unwrap_unchecked)]
 
-use std::cmp::max;
-use std::collections::{BTreeMap, BTreeSet};
-use std::hash::{BuildHasherDefault, Hash, Hasher};
 use std::time::SystemTime;
 
-use indexmap::IndexMap;
 use lazy_static::*;
-use rustc_hash::{FxHasher, FxHashMap};
+use rustc_hash::FxHashMap;
 use noisy_float::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -85,9 +81,9 @@ fn slice_to_distr(slice: &[f64]) -> Distr {
     Distr::new(slice.into_iter().enumerate().map(|(n, p)| (n as i32, *p)).collect())
 }
 
-fn merge_or_insert(dist: &mut HashMap<Meso, f64>, key: Meso, p: f64) {
+fn merge_or_insert(dist: &mut FxHashMap<Meso, f64>, key: Meso, p: f64) {
     dist.entry(key)
-        .and_modify(|&p0| p0 += p)
+        .and_modify(|p0| *p0 += p)
         .or_insert(p);
 }
 
@@ -110,14 +106,6 @@ fn round_bucket(mesos: Meso) -> Meso {
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-enum Transition {
-    Up = 0,
-    Stay = 1,
-    Down = 2,
-    Boom = 3,
-}
-
 #[derive(Clone, Debug)]
 struct Distr {
     dist: Vec<(Meso, f64)>
@@ -127,7 +115,7 @@ impl Distr {
     fn new(dist: Vec<(Meso, f64)>) -> Self {
         let mut map: FxHashMap<_, _> = Default::default();
         for (c, p) in dist.into_iter() {
-            merge_or_insert(map, round_bucket(c), p);
+            merge_or_insert(&mut map, round_bucket(c), p);
         }
         let dist: Vec<_> = map.into_iter().collect();
         let mut res = Self { dist };
@@ -163,12 +151,12 @@ impl Distr {
 
     fn geom(p: f64) -> Self {
         let mut dist = Vec::new();
-        let mut S = 1.0;
+        let mut remaining = 1.0;
         let mut i = 1;
-        while S > 1e-6 {
-            dist.push((i, S*p));
+        while remaining > 1e-6 {
+            dist.push((i, remaining*p));
             i += 1;
-            S -= S * p;
+            remaining -= remaining * p;
         }
         Self {
             dist
@@ -191,12 +179,7 @@ impl Distr {
         states.push((0,0,0,0,true), (f(1.0), 0));
         let mut output: [[f64; MAX_DOWN]; 4] = [[0.0; MAX_DOWN]; 4];
         let mut total_prob = 0.0;
-        let mut i = 0;
         while total_prob < 1.0 - 1e-6 {
-            i += 1;
-            if i % 100_000 == 0 {
-                println!("{} {}", states.all_states.len(), total_prob);
-            }
             let ((du, ds, dd, db, at_start), (p, _)) = states.pop();
             if p < 1e-12 {
                 continue;
@@ -210,9 +193,6 @@ impl Distr {
                     succ += remaining * up;
                     p_down += remaining * down;
                     remaining *= boom + stay;
-                }
-                if *[du, ds, dd, db].iter().max().unwrap() as usize == MAX_DOWN {
-                    dbg!((du, ds, dd, db, at_start, p, total_prob));
                 }
                 output[0][du as usize] += succ;
                 output[1][ds as usize] += succ;
@@ -265,29 +245,24 @@ impl Distr {
     }
 
     fn product(&self, other: &Self) -> Self {
-        println!("mult distrs of size {} and {}", self.dist.len(), other.dist.len());
         let mut dist = FxHashMap::default();
         for (i, p) in self.dist.iter() {
             for (c, p2) in other.dist.iter() {
-                merge_or_insert(dist, round_bucket(i*c), p*p2);
+                merge_or_insert(&mut dist, round_bucket(i*c), p*p2);
             }
         }
         let dist = dist.into_iter().collect();
-        println!("finish mult distrs of size {} and {}", self.dist.len(), other.dist.len());
         Self::new(dist)
     }
 
     fn add(&self, other: &Self) -> Self {
-        println!("add distrs of size {} and {}", self.dist.len(), other.dist.len());
         let mut dist = FxHashMap::default();
         for (c, p) in self.dist.iter() {
             for (c2, p2) in other.dist.iter() {
-                merge_or_insert(dist, round_bucket(c+c2), p*p2);
+                merge_or_insert(&mut dist, round_bucket(c+c2), p*p2);
             }
         }
         let dist: Vec<_> = dist.into_iter().collect();
-        println!("finish add distrs of size {} and {}", self.dist.len(), other.dist.len());
-        println!("add result size: {}", dist.len());
         Self::new(dist)
     }
 
@@ -337,7 +312,7 @@ fn calculate3(level: i32) {
                 continue;
             }
             let mut dist = Distr::zero();
-            let mut base = Distr::geom(up);
+            let base = Distr::geom(up);
             // cost of attempts at start->target
             let mut base2 = base.clone();
             base2.scale(COST[start as usize]);
@@ -345,13 +320,13 @@ fn calculate3(level: i32) {
 
             if down > 0. {
                 let cost_below = COST[(start - 1) as usize];
-                let [downup, _downstay, downdown, downboom] = PROBS_F64[(start - 11) as usize];
+                let [_, _, downdown, downboom] = PROBS_F64[(start - 11) as usize];
                 // if we can go down then we need the number of failures
                 if downdown == 0. {
                     let mut fails = base.clone();
                     fails.shift(-1);
-                    let DS_cost = table.get(&(start-1, start)).unwrap();
-                    dist = dist.add(&fails.product(&DS_cost));
+                    let ds_cost = table.get(&(start-1, start)).unwrap();
+                    dist = dist.add(&fails.product(&ds_cost));
                 } else {
                     let cost_two_below = COST[(start - 2) as usize];
                     // println!("Starting chance time sim");

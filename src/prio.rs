@@ -1,8 +1,8 @@
-use std::hash::{BuildHasherDefault, Hash, Hasher};
+use std::hash::{BuildHasherDefault, Hash};
 
 use indexmap::IndexMap;
 use noisy_float::prelude::*;
-use rustc_hash::{FxHasher, FxHashMap};
+use rustc_hash::FxHasher;
 
 type F = R64;
 
