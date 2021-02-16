@@ -10,20 +10,14 @@ pub fn calculate3(level: i32) {
     table.insert((12, 12), Distr::zero());
     let update = |table: &mut FxHashMap<_, _>, start: Star, target: Star, dist: Distr| {
         println!("{} -> {} dist size: {} expected cost: {}", start, target, dist.dist.len(), dist.expected_cost());
-        // if start == 21 {
-        //     dbg!(&dist.dist[0..100]);
-        // }
         table.insert((start, target), dist);
     };
     let dist_below = |table: &FxHashMap<_, Distr>, table_chance: &FxHashMap<_, _>, start: Star| {
-        let mut ds_cost = table_chance.get(&(start-1, start));
-        if ds_cost.is_some() {
-            println!("{}->{}->{} found chance time", start-1, start, start+1);
-        } else {
-            ds_cost = table.get(&(start-1, start));
-        }
-        let ds_cost = ds_cost.unwrap();
-        ds_cost.clone()
+        let key = &(start-1, start);
+        table_chance.get(key)
+            .or(table.get(key))
+            .unwrap()
+            .clone()
     };
     for target in 11..STAR_LIMIT+1 {
         for start in (10..target).rev() {
@@ -52,47 +46,36 @@ pub fn calculate3(level: i32) {
 
             if down > 0. {
                 let cost_below = COST[(start - 1) as usize];
-                let [_, _, downdown, _] = PROBS_F64[(start - 11) as usize];
-                // if we can go down then we need the number of failures
-                // if downdown == 0. {
                 if start < 21 {
+                    // if we are under 21* and the down chance is >0, then chance
+                    // time may trigger when we fall to this star and fall again
                     let mut fails = base.clone();
                     fails.shift(-1);
+                    // the normal cost when falling to the star below this one -
+                    // note that this is also affected by chance time so we make
+                    // a call to dist_below
                     let normal_cost = dist_below(&table, &table_chance_time, start);
                     let chance_time_cost = fails.chance_time(&normal_cost, cost_below);
+                    dbg!(&chance_time_cost.dist[0..100]);
                     dist_chance_time = Some(dist.add(&chance_time_cost));
                 }
                 let mut fails = base.clone();
                 fails.shift(-1);
+                // dbg!(start, &fails.dist);
                 let ds_cost = dist_below(&table, &table_chance_time, start);
-                dbg!(start, fails.dist[0], fails.dist.len(), ds_cost.dist.len());
                 let ds_cost = fails.product(&ds_cost);
+                dbg!(&ds_cost.dist[0..100]);
                 dist = dist.add(&ds_cost);
-                dbg!(dist.dist.len());
-
-
-                // } else {
-                // if downdown > 0. {
-                //     let cost_two_below = COST[(start - 2) as usize];
-                //     let dd = Distr::downdowns(start);
-                //     // subtract the start-1 -> start cost in downdowns (chance time)
-                //     let mut dd_normal_cost = table.get(&(start - 2, start - 1)).unwrap().clone();
-                //     dd_normal_cost = dd_normal_cost.product(&dd);
-                //     dd_normal_cost.scale(-1);
-                //     dist = dist.add(&dd_normal_cost);
-                //     let mut chance_time_cost = Distr::constant(cost_two_below);
-                //     chance_time_cost = chance_time_cost.product(&dd);
-                //     dist = dist.add(&chance_time_cost);
-                //     // dbg!(&dd_normal_cost.dist[0..10], &chance_time_cost.dist[0..10]);
-                //     dbg!(dd_normal_cost.dist.len(), chance_time_cost.dist.len(), dist.dist.len());
-                // }
             }
             if boom > 0. {
                 let booms = Distr::booms(up, boom);
                 let boom_cost = table.get(&(12, start)).unwrap();
-                dist = dist.add(&booms.product(boom_cost));
+                let boom_cost = &booms.product(boom_cost);
+                dist = dist.add(boom_cost);
+                dist_chance_time = dist_chance_time.map(|d| d.add(boom_cost));
             }
             if let Some(dist) = dist_chance_time {
+                print!("chance time: ");
                 update(&mut table_chance_time, start, target, dist);
             }
             update(&mut table, start, target, dist);
