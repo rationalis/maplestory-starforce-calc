@@ -1,3 +1,5 @@
+use crate::distr::round_bucket;
+
 use lazy_static::*;
 use noisy_float::prelude::*;
 
@@ -78,14 +80,14 @@ lazy_static! {
         }
         bins_d
     };
-    pub static ref LOW_RES_BINS: [Meso; NUM_BINS/4] = {
-        const EXP : f64 = 1.0 + 1.0 / 64.0;
-        let mut bins = [0; NUM_BINS/4];
-        for i in 0..NUM_BINS/2 {
-            let frac: f64 = EXP.powi((i as i32)+1);
-            bins[i] = (1000f64 * frac).round() as i32;
+    pub static ref BIN_SUMS: Vec<usize> = {
+        let mut bin_sums = Vec::new();
+        for i in 0..NUM_BINS {
+            for j in 0..NUM_BINS {
+                bin_sums.push(round_bucket(BINS[i] + BINS[j]).0);
+            }
         }
-        bins
+        bin_sums
     };
 }
 

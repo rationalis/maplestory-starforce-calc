@@ -7,11 +7,6 @@ use std::ops::{Add, AddAssign, Mul, MulAssign};
 
 use rustc_hash::FxHashMap;
 
-#[derive(Clone, Debug)]
-pub struct Distr {
-    pub dist: Vec<(Meso, f64)>
-}
-
 pub fn merge_or_insert<K, V, D>(dist: &mut FxHashMap<K, V>, key: K, p: D) where
     K: Eq + Hash, V: AddAssign<D>, D: Copy + Into<V>
 {
@@ -20,13 +15,13 @@ pub fn merge_or_insert<K, V, D>(dist: &mut FxHashMap<K, V>, key: K, p: D) where
         .or_insert(p.into());
 }
 
-pub fn round_bucket(mesos: Meso) -> Meso {
+pub fn round_bucket(mesos: Meso) -> (usize, Meso) {
     if mesos <= 1000 {
-        return mesos;
+        return (mesos as usize, mesos);
     }
-    let c = mesos.abs();
-    let (_, c) = round_bucket_impl(&*BINS, c);
-    c * mesos.signum()
+    let (mut u, c) = round_bucket_impl(&*BINS, mesos);
+    u += 1001;
+    (u, c)
 }
 
 pub fn round_bucket_impl(bins: &[Meso], mesos: Meso) -> (usize, Meso) {
@@ -52,18 +47,6 @@ pub fn round_bucket_impl(bins: &[Meso], mesos: Meso) -> (usize, Meso) {
     (idx, bins[idx])
 }
 
-/// I tried the exact calculation but it seems the float ops were pretty slow.
-pub fn round_bucket_gallop(idx: usize, mesos: Meso) -> (usize, Meso) {
-    if mesos <= BINS[0] {
-        return (0, mesos);
-    }
-    let mut delta = 1;
-    while BINS[idx + delta] < mesos {
-        delta *= 2;
-    }
-    round_bucket_impl(&BINS[idx+delta/2..idx+delta], mesos)
-}
-
 pub fn round_bucket_linear(mut idx: usize, mesos: Meso) -> (usize, Meso) {
     if mesos <= BINS[0] {
         return (0, mesos);
@@ -78,13 +61,21 @@ pub fn round_bucket_linear(mut idx: usize, mesos: Meso) -> (usize, Meso) {
     }
 }
 
+pub fn unbin(u: usize) -> Meso {
+    if u <= 1000 {
+        u as i32
+    } else {
+        BINS[u-1001]
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Distr {
+    pub dist: Vec<(usize, f64)>
+}
+
 impl Distr {
-    pub fn new(dist: Vec<(Meso, f64)>) -> Self {
-        let mut map: FxHashMap<_, _> = Default::default();
-        for (c, p) in dist.into_iter() {
-            merge_or_insert(&mut map, round_bucket(c), p);
-        }
-        let dist: Vec<_> = map.into_iter().collect();
+    fn new(dist: Vec<(usize, f64)>) -> Self {
         let mut res = Self { dist };
         res.truncate(None);
         res.dist.sort_unstable_by_key(|(c, _)| *c);
@@ -122,7 +113,7 @@ impl Distr {
         }
     }
 
-    pub fn constant(c: Meso) -> Self {
+    pub fn constant(c: usize) -> Self {
         Self {
             dist: vec![(c, 1.0)],
         }
@@ -175,39 +166,26 @@ impl Distr {
     }
 
     pub fn shift(&mut self, c: Meso) -> &mut Self {
-        self.dist.iter_mut().for_each(|(c0, _)| *c0 = round_bucket(*c0 + c));
+        self.dist.iter_mut().for_each(|(c0, _)| *c0 = round_bucket(unbin(*c0) + c).0);
         self
     }
 
     pub fn scale(&mut self, n: Meso) -> &mut Self {
-        self.dist.iter_mut().for_each(|(c0, _)| *c0 = round_bucket(*c0 * n));
+        self.dist.iter_mut().for_each(|(c0, _)| *c0 = round_bucket(unbin(*c0) * n).0);
         self
-    }
-
-    pub fn product(&self, other: &Self) -> Self {
-        let mut dist = FxHashMap::default();
-        for (i, p) in self.dist.iter() {
-            for (c, p2) in other.dist.iter() {
-                merge_or_insert(&mut dist, round_bucket(i*c), p*p2);
-            }
-        }
-        let dist = dist.into_iter().collect();
-        Self::new(dist)
     }
 
     pub fn add(&self, other: &Self) -> Self {
         let mut dist = [0.0; 1001 + NUM_BINS];
-        for (c, p) in self.dist.iter() {
-            let (mut idx, _) = round_bucket_linear(0, *c);
-            for (c2, p2) in other.dist.iter() {
-                let cc = c+c2;
-                if cc <= 1000 {
-                    dist[cc as usize] += p*p2;
-                } else {
-                    let (i, _) = round_bucket_linear(idx, c+c2);
-                    idx = i;
-                    dist[1001+i] += p*p2;
-                }
+        for &(c, p) in self.dist.iter() {
+            for &(c2, p2) in other.dist.iter() {
+                let i =
+                    if c <= 1000 || c2 <= 1000 {
+                        round_bucket(unbin(c) + unbin(c2)).0
+                    } else {
+                        BIN_SUMS[(c-1001)*NUM_BINS + c2-1001]
+                    };
+                dist[i] += p*p2;
             }
         }
         let dist = dist
@@ -216,19 +194,21 @@ impl Distr {
             .filter_map(|(i, &p)|
                         if p == 0.0 {
                             None
-                        } else if i <= 1000 {
-                            Some((i as i32, p))
                         } else {
-                            Some((BINS[i - 1001], p))
+                            Some((i, p))
                         }
             ).collect();
         Self::new(dist)
     }
 
     pub fn expected_cost(&self) -> u64 {
-        let sum: f64 = self.dist.iter().map(|(c, p)| (*c as f64)*p).sum();
+        let sum: f64 = self.dist.iter().map(|(c, p)| (unbin(*c) as f64)*p).sum();
         let sum = (UNIT as f64) * sum;
         sum as u64
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item=(Meso, f64)> + '_ {
+        self.dist.iter().map(|&(i, p)| (unbin(i), p))
     }
 }
 
@@ -277,10 +257,10 @@ impl Add<&PartialDistr> for Distr {
 
     fn add(self, other: &PartialDistr) -> Self::Output {
         let mut res = PartialDistr::default();
-        for &(c, p) in self.dist.iter() {
+        for (c, p) in self.iter() {
             let p = f(p);
             for (c2, p2) in other.dist.iter() {
-                merge_or_insert(&mut res.dist, round_bucket(c+c2), p*p2);
+                merge_or_insert(&mut res.dist, round_bucket(c+c2).1, p*p2);
                 res.total += p*p2;
             }
         }
@@ -305,7 +285,7 @@ impl PartialDistr {
 
 impl Into<Distr> for PartialDistr {
     fn into(self) -> Distr {
-        Distr::new(self.dist.into_iter().map(|(c,p)| (c,g(p))).collect())
+        Distr::new(self.dist.into_iter().map(|(c,p)| (round_bucket(c).0,g(p))).collect())
     }
 }
 
