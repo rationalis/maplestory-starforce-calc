@@ -6,25 +6,25 @@ use rustc_hash::FxHasher;
 
 type F = R64;
 
-pub struct Prio<K: Hash+Eq, V: Copy + Ord> {
+pub struct Prio<K: Hash+Eq, V: Ord> {
     pub all_states: IndexMap<K, V, BuildHasherDefault<FxHasher>>,
-    total_prob: F,
-    pub prob: Option<fn(&mut V) -> &mut F>,
+    pub total_prob: F,
+    // pub prob: Option<fn(&mut V) -> &mut F>,
 }
 
 impl<K, V> Prio<K, V> where
-    K: Hash + Eq, V: Copy + Ord
+    K: Hash + Eq, V: Ord, for<'a> F: From<&'a V>
 {
     pub fn new() -> Self {
         Self {
             all_states: Default::default(),
             total_prob: Default::default(),
-            prob: Default::default()
+            // prob: Default::default()
         }
     }
 
-    fn get(&self, idx: usize) -> V {
-        unsafe {*self.all_states.get_index(idx).unwrap_unchecked().1}
+    fn get(&self, idx: usize) -> &V {
+        unsafe {self.all_states.get_index(idx).unwrap_unchecked().1}
     }
 
     fn sift_up(&mut self, mut idx: usize) {
@@ -68,21 +68,27 @@ impl<K, V> Prio<K, V> where
         unsafe {popped.unwrap_unchecked()}
     }
 
-    pub fn push(&mut self, key: K, mut val: V) {
-        let pf = &self.prob.as_ref().unwrap();
-        let prob = pf(&mut val);
-        self.total_prob += *prob;
+    pub fn push<D>(&mut self, key: K, mut val: D) where
+        V: std::ops::AddAssign<D>,
+        D: Copy + Into<V>
+    {
+        // let pf = &self.prob.as_ref().unwrap();
+        // let prob = pf(&mut val);
+        let v: V = val.into();
+        let f: F = (&v).into();
+        self.total_prob += f;
         // merge two different probability paths of arriving at the same state
         let entry = self.all_states.entry(key);
         let idx = entry.index();
-        entry.and_modify(|old| *pf(old) += *prob)
-            .or_insert(val);
+        entry.and_modify(|old| *old += val)
+            .or_insert(val.into());
         self.sift_up(idx);
     }
 
     pub fn pop(&mut self) -> (K, V) {
-        let (key, mut val) = self.heap_pop();
-        self.total_prob -= *(self.prob.as_ref().unwrap())(&mut val);
+        let (key, val) = self.heap_pop();
+        let f: F = (&val).into();
+        self.total_prob -= f;
         (key, val)
     }
 }

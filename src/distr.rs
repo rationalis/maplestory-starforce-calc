@@ -2,6 +2,7 @@ use crate::consts::*;
 use crate::prio::Prio;
 
 use std::hash::Hash;
+use std::ops::AddAssign;
 
 use rustc_hash::FxHashMap;
 
@@ -20,10 +21,12 @@ pub fn slice_to_distr(slice: &[f64]) -> Distr {
     }
 }
 
-pub fn merge_or_insert<K: Eq + Hash>(dist: &mut FxHashMap<K, f64>, key: K, p: f64) {
+pub fn merge_or_insert<K, V, D>(dist: &mut FxHashMap<K, V>, key: K, p: D) where
+    K: Eq + Hash, V: AddAssign<D>, D: Copy + Into<V>
+{
     dist.entry(key)
         .and_modify(|p0| *p0 += p)
-        .or_insert(p);
+        .or_insert(p.into());
 }
 
 pub fn round_bucket(mesos: Meso) -> Meso {
@@ -63,18 +66,18 @@ impl Distr {
         let dist: Vec<_> = map.into_iter().collect();
         let mut res = Self { dist };
         res.truncate(None);
-        if res.dist.len() > 14000 {
-            dbg!("Distr longer than 14000");
-            dbg!(&res.dist.iter().map(|(p,_)| *p).collect::<Vec<_>>()[0..1000]);
-            dbg!(&res.dist[0..100]);
-            for &(c, p) in res.dist.iter() {
-                assert_eq!(c, round_bucket(c));
-                if c >= 100_000_000 {
-                    println!("{},{}", c, p);
-                }
-            }
-            panic!();
-        }
+        // if res.dist.len() > 14000 {
+        //     dbg!("Distr longer than 14000");
+        //     dbg!(&res.dist.iter().map(|(p,_)| *p).collect::<Vec<_>>()[0..1000]);
+        //     dbg!(&res.dist[0..100]);
+        //     for &(c, p) in res.dist.iter() {
+        //         assert_eq!(c, round_bucket(c));
+        //         if c >= 100_000_000 {
+        //             println!("{},{}", c, p);
+        //         }
+        //     }
+        //     panic!();
+        // }
         res
     }
 
@@ -132,6 +135,34 @@ impl Distr {
         Self {
             dist
         }
+    }
+
+    /// Calculate the joint distribution (i.e. negative multinomial) of outcomes.
+    /// At checkpoint stars with 0 down chance (10, 15, 20), the number of downs
+    /// is fixed to 0 and the number of attempts can vary, so this function will
+    /// also map (downs, booms) to a distribution.
+    pub fn sim(start: Star) -> FxHashMap<(u8, u8), PartialDistr> {
+        let [up, stay, down, boom] = PROBS[(start - 10) as usize];
+        let mut successes = FxHashMap::default();
+        let mut states: Prio<(u8, u8), PartialDistr> = Prio::new();
+        let update = |states: &mut Prio<_, _>, k, v: (Meso, F)| {
+            if v.1 < f(1e-16) {
+                return;
+            }
+            states.push(k, v);
+        };
+        states.push((0, 0), (0, f(1.0)));
+        while states.total_prob > 1e-6 {
+            let ((downs, booms), pdist) = states.pop();
+            for (attempts, &p) in pdist.dist.iter() {
+                let attempts = attempts + 1;
+                merge_or_insert(&mut successes, (downs, booms), (attempts, p*up));
+                update(&mut states, (downs+1, booms), (attempts, p*down));
+                update(&mut states, (downs, booms+1), (attempts, p*boom));
+                update(&mut states, (downs, booms), (attempts, p*stay));
+            }
+        }
+        successes
     }
 
     pub fn chance_time(&self, normal_up_cost: &Self, chance_time_cost: i32) -> Self {
@@ -213,5 +244,46 @@ impl Distr {
         let sum: f64 = self.dist.iter().map(|(c, p)| (*c as f64)*p).sum();
         let sum = (UNIT as f64) * sum;
         sum as u64
+    }
+}
+
+
+#[derive(Debug, Default, Eq, PartialEq)]
+pub struct PartialDistr {
+    total: F,
+    dist: FxHashMap<Meso, F>,
+}
+
+impl Ord for PartialDistr {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.total.cmp(&other.total)
+    }
+}
+
+impl PartialOrd for PartialDistr {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.total.cmp(&other.total))
+    }
+}
+
+impl From<(Meso, F)> for PartialDistr {
+    fn from(val: (Meso, F)) -> Self {
+        let mut res = Self::default();
+        res += val;
+        res
+    }
+}
+
+impl From<&PartialDistr> for F {
+    fn from(distr: &PartialDistr) -> F {
+        distr.total
+    }
+}
+
+impl AddAssign<(Meso, F)> for PartialDistr {
+    fn add_assign(&mut self, other: (Meso, F)) {
+        let (c, p) = other;
+        merge_or_insert(&mut self.dist, c, p);
+        self.total += p;
     }
 }

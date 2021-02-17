@@ -35,6 +35,14 @@ pub fn calculate3(level: i32) {
                 update(&mut table, start, target, dist);
                 continue;
             }
+
+            let joint = Distr::sim(start);
+            dbg!(start, joint.len(), joint.get(&(0,0)), joint.get(&(1, 1)));
+            for k in joint.keys() {
+                print!("{:?} :: ", k);
+            }
+            print!("\n");
+
             let mut dist = Distr::zero();
             let base = Distr::geom(up);
             // cost of attempts at start->target
@@ -56,7 +64,7 @@ pub fn calculate3(level: i32) {
                     // a call to dist_below
                     let normal_cost = dist_below(&table, &table_chance_time, start);
                     let chance_time_cost = fails.chance_time(&normal_cost, cost_below);
-                    dbg!(&chance_time_cost.dist[0..100]);
+                    // dbg!(&chance_time_cost.dist[0..100]);
                     dist_chance_time = Some(dist.add(&chance_time_cost));
                 }
                 let mut fails = base.clone();
@@ -64,7 +72,7 @@ pub fn calculate3(level: i32) {
                 // dbg!(start, &fails.dist);
                 let ds_cost = dist_below(&table, &table_chance_time, start);
                 let ds_cost = fails.product(&ds_cost);
-                dbg!(&ds_cost.dist[0..100]);
+                // dbg!(&ds_cost.dist[0..100]);
                 dist = dist.add(&ds_cost);
             }
             if boom > 0. {
