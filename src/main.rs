@@ -17,5 +17,7 @@ use maplestory_calculator::calc::*;
 // TODO: write README
 
 fn main() {
+    let t = SystemTime::now();
     calculate3(160);
+    println!("Finished in {} seconds", t.elapsed().unwrap().as_secs_f32());
 }

@@ -56,9 +56,6 @@ pub fn round_bucket_impl(bins: &[Meso], mesos: Meso) -> (usize, Meso) {
                     closest = Some(insertion - 1);
                 }
             }
-            // if insertion <= 24 && insertion >= 22 {
-            //     dbg!(bins[insertion], insertion, mesos, closest, &bins[insertion-1..insertion+1]);
-            // }
             closest.unwrap()
         }
     };
@@ -81,31 +78,12 @@ pub fn round_bucket_linear(mut idx: usize, mesos: Meso) -> (usize, Meso) {
     if mesos <= BINS[0] {
         return (0, mesos);
     }
-    // let tmp = idx;
-    // while idx > 0 && BINS[idx-1] > mesos {
-    //     idx -= 1;
-    // }
     while BINS[idx] < mesos {
         idx += 1;
     }
-    // return (idx, BINS[idx]);
-    // assert!(idx < BINS.len());
-    // let check = round_bucket_impl(&*BINS, mesos);
-
-    // let diff1 = BINS[idx] - mesos;
-    // let diff2 = mesos - BINS[idx-1];
-    // if diff1 <= diff2 {
-        // if idx != check.0 {
-        //     dbg!(idx, check);
-        //     panic!()
-        // }
     if BINS_D[idx] <= mesos {
         (idx, BINS[idx])
     } else {
-        // if idx-1 != check.0 {
-        //     dbg!(tmp, idx, check, mesos);
-        //     panic!()
-        // }
         (idx-1, BINS[idx-1])
     }
 }
@@ -149,7 +127,6 @@ impl Distr {
             if last_key < 66 {
                 self.dist.push((last_key, 1.0 - total_prob));
             } else {
-                // self.dist.iter_mut().for_each(|(_,p)| *p /= total_prob);
                 self.normalize();
             }
         }
@@ -230,26 +207,12 @@ impl Distr {
 
     pub fn add(&self, other: &Self) -> Self {
         let mut dist = FxHashMap::default();
-        // let mut other_sorted_by_bin = other.dist.clone();
-        // other_sorted_by_bin.sort_unstable_by_key(|(c, _)| *c);
         for (c, p) in self.dist.iter() {
             let (mut idx, _) = round_bucket_linear(0, *c);
-            // if val < 2000 {
-            //     dbg!(c, idx, val);
-            // }
-            // let mut last = other_sorted_by_bin[0].0;
             for (c2, p2) in other.dist.iter() {
-            // for (c2, p2) in other_sorted_by_bin.iter() {
-                // if *c2 < last {
-                //     dbg!(other_sorted_by_bin); panic!();
-                // }
                 let (i, rounded) = round_bucket_linear(idx, c+c2);
-                // if rounded < 2000 {
-                //     dbg!(c2, i, rounded);
-                // }
                 idx = i;
                 merge_or_insert(&mut dist, rounded, p*p2);
-                // last = *c2;
             }
         }
         let dist: Vec<_> = dist.into_iter().collect();

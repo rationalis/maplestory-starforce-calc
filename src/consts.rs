@@ -22,7 +22,7 @@ pub const MAX_BOOMS: usize = 15;
 pub const MAX_DOWNS: usize = 64;
 
 pub const DIST_THRESHOLD: f64 = 1e-6;
-pub const NUM_BINS: usize = 4000;
+pub const NUM_BINS: usize = 3000;
 pub const BIN_EXP : f64 = 1.0 + 1.0 / 256.0;
 
 pub const PROBS_F64: [[f64; 4]; PROB_COUNT] = [
