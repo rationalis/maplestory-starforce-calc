@@ -23,6 +23,7 @@ pub const MAX_DOWNS: usize = 64;
 
 pub const DIST_THRESHOLD: f64 = 1e-6;
 pub const NUM_BINS: usize = 4000;
+pub const BIN_EXP : f64 = 1.0 + 1.0 / 256.0;
 
 pub const PROBS_F64: [[f64; 4]; PROB_COUNT] = [
     [ 0.5, 0.5, 0., 0. ],
@@ -63,13 +64,19 @@ lazy_static! {
         costs
     };
     pub static ref BINS: [Meso; NUM_BINS] = {
-        const EXP : f64 = 1.0 + 1.0 / 256.0;
         let mut bins = [0; NUM_BINS];
         for i in 0..NUM_BINS {
-            let frac: f64 = EXP.powi((i as i32)+1);
+            let frac: f64 = BIN_EXP.powi((i as i32)+1);
             bins[i] = (1000f64 * frac).round() as i32;
         }
         bins
+    };
+    pub static ref BINS_D: [Meso; NUM_BINS] = {
+        let mut bins_d = [0; NUM_BINS];
+        for i in 1..NUM_BINS {
+            bins_d[i] = (BINS[i] + BINS[i-1])/2;
+        }
+        bins_d
     };
     pub static ref LOW_RES_BINS: [Meso; NUM_BINS/4] = {
         const EXP : f64 = 1.0 + 1.0 / 64.0;

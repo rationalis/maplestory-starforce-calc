@@ -35,27 +35,79 @@ pub fn round_bucket(mesos: Meso) -> Meso {
         return mesos;
     }
     let c = mesos.abs();
-    let res = BINS.binary_search(&c);
+    let (_, c) = round_bucket_impl(&*BINS, c);
+    c * mesos.signum()
+}
+
+pub fn round_bucket_impl(bins: &[Meso], mesos: Meso) -> (usize, Meso) {
+    let c = mesos;
+    let res = bins.binary_search(&c);
     let idx = match res {
         Ok(found) => found,
         Err(insertion) => {
             let mut closest = None;
             let mut closest_diff = None;
-            if insertion < BINS.len() {
+            if insertion < bins.len() {
                 closest = Some(insertion);
-                closest_diff = Some((BINS[insertion] - c).abs());
+                closest_diff = Some((bins[insertion] - c).abs());
             }
             if insertion > 0 {
-                if closest.is_none() || (BINS[insertion - 1] - c).abs() < closest_diff.unwrap() {
+                if closest.is_none() || (bins[insertion - 1] - c).abs() < closest_diff.unwrap() {
                     closest = Some(insertion - 1);
                 }
             }
+            // if insertion <= 24 && insertion >= 22 {
+            //     dbg!(bins[insertion], insertion, mesos, closest, &bins[insertion-1..insertion+1]);
+            // }
             closest.unwrap()
         }
     };
-    let c = BINS[idx];
+    (idx, bins[idx])
+}
 
-    c * mesos.signum()
+/// I tried the exact calculation but it seems the float ops were pretty slow.
+pub fn round_bucket_gallop(mut idx: usize, mesos: Meso) -> (usize, Meso) {
+    if mesos <= BINS[0] {
+        return (0, mesos);
+    }
+    let mut delta = 1;
+    while BINS[idx + delta] < mesos {
+        delta *= 2;
+    }
+    round_bucket_impl(&BINS[idx+delta/2..idx+delta], mesos)
+}
+
+pub fn round_bucket_linear(mut idx: usize, mesos: Meso) -> (usize, Meso) {
+    if mesos <= BINS[0] {
+        return (0, mesos);
+    }
+    // let tmp = idx;
+    // while idx > 0 && BINS[idx-1] > mesos {
+    //     idx -= 1;
+    // }
+    while BINS[idx] < mesos {
+        idx += 1;
+    }
+    // return (idx, BINS[idx]);
+    // assert!(idx < BINS.len());
+    // let check = round_bucket_impl(&*BINS, mesos);
+
+    // let diff1 = BINS[idx] - mesos;
+    // let diff2 = mesos - BINS[idx-1];
+    // if diff1 <= diff2 {
+        // if idx != check.0 {
+        //     dbg!(idx, check);
+        //     panic!()
+        // }
+    if BINS_D[idx] <= mesos {
+        (idx, BINS[idx])
+    } else {
+        // if idx-1 != check.0 {
+        //     dbg!(tmp, idx, check, mesos);
+        //     panic!()
+        // }
+        (idx-1, BINS[idx-1])
+    }
 }
 
 impl Distr {
@@ -67,6 +119,7 @@ impl Distr {
         let dist: Vec<_> = map.into_iter().collect();
         let mut res = Self { dist };
         res.truncate(None);
+        res.dist.sort_unstable_by_key(|(c, _)| *c);
         res
     }
 
@@ -177,9 +230,26 @@ impl Distr {
 
     pub fn add(&self, other: &Self) -> Self {
         let mut dist = FxHashMap::default();
+        // let mut other_sorted_by_bin = other.dist.clone();
+        // other_sorted_by_bin.sort_unstable_by_key(|(c, _)| *c);
         for (c, p) in self.dist.iter() {
+            let (mut idx, _) = round_bucket_linear(0, *c);
+            // if val < 2000 {
+            //     dbg!(c, idx, val);
+            // }
+            // let mut last = other_sorted_by_bin[0].0;
             for (c2, p2) in other.dist.iter() {
-                merge_or_insert(&mut dist, round_bucket(c+c2), p*p2);
+            // for (c2, p2) in other_sorted_by_bin.iter() {
+                // if *c2 < last {
+                //     dbg!(other_sorted_by_bin); panic!();
+                // }
+                let (i, rounded) = round_bucket_linear(idx, c+c2);
+                // if rounded < 2000 {
+                //     dbg!(c2, i, rounded);
+                // }
+                idx = i;
+                merge_or_insert(&mut dist, rounded, p*p2);
+                // last = *c2;
             }
         }
         let dist: Vec<_> = dist.into_iter().collect();
@@ -257,7 +327,6 @@ pub struct PartialDistr {
 
 impl PartialDistr {
     pub fn mix(&mut self, other: Self) {
-        let tmp = self.total;
         for (&c, &p) in other.dist.iter() {
             merge_or_insert(&mut self.dist, c, p);
             self.total += p;
