@@ -12,16 +12,6 @@ pub struct Distr {
     pub dist: Vec<(Meso, f64)>
 }
 
-pub fn slice_to_distr(slice: &[f64]) -> Distr {
-    Distr {
-        dist: slice
-            .into_iter()
-            .enumerate()
-            .map(|(n, p)| (n as i32, *p))
-            .collect()
-    }
-}
-
 pub fn merge_or_insert<K, V, D>(dist: &mut FxHashMap<K, V>, key: K, p: D) where
     K: Eq + Hash, V: AddAssign<D>, D: Copy + Into<V>
 {
@@ -63,7 +53,7 @@ pub fn round_bucket_impl(bins: &[Meso], mesos: Meso) -> (usize, Meso) {
 }
 
 /// I tried the exact calculation but it seems the float ops were pretty slow.
-pub fn round_bucket_gallop(mut idx: usize, mesos: Meso) -> (usize, Meso) {
+pub fn round_bucket_gallop(idx: usize, mesos: Meso) -> (usize, Meso) {
     if mesos <= BINS[0] {
         return (0, mesos);
     }
@@ -206,16 +196,32 @@ impl Distr {
     }
 
     pub fn add(&self, other: &Self) -> Self {
-        let mut dist = FxHashMap::default();
+        let mut dist = [0.0; 1001 + NUM_BINS];
         for (c, p) in self.dist.iter() {
             let (mut idx, _) = round_bucket_linear(0, *c);
             for (c2, p2) in other.dist.iter() {
-                let (i, rounded) = round_bucket_linear(idx, c+c2);
-                idx = i;
-                merge_or_insert(&mut dist, rounded, p*p2);
+                let cc = c+c2;
+                if cc <= 1000 {
+                    dist[cc as usize] += p*p2;
+                } else {
+                    let (i, _) = round_bucket_linear(idx, c+c2);
+                    idx = i;
+                    dist[1001+i] += p*p2;
+                }
             }
         }
-        let dist: Vec<_> = dist.into_iter().collect();
+        let dist = dist
+            .into_iter()
+            .enumerate()
+            .filter_map(|(i, &p)|
+                        if p == 0.0 {
+                            None
+                        } else if i <= 1000 {
+                            Some((i as i32, p))
+                        } else {
+                            Some((BINS[i - 1001], p))
+                        }
+            ).collect();
         Self::new(dist)
     }
 
