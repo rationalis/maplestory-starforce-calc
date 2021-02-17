@@ -241,10 +241,6 @@ impl Distr {
         Self::new(dist)
     }
 
-    pub fn mix(&mut self, other: &PartialDistr) -> &mut Self {
-        panic!()
-    }
-
     pub fn expected_cost(&self) -> u64 {
         let sum: f64 = self.dist.iter().map(|(c, p)| (*c as f64)*p).sum();
         let sum = (UNIT as f64) * sum;
@@ -262,7 +258,17 @@ impl Add for &Distr {
 
 impl AddAssign<&Distr> for Distr {
     fn add_assign(&mut self, other: &Self) {
-        *self = self.add(other)
+        *self = Distr::add(self, other)
+    }
+}
+
+impl Add<i32> for &Distr {
+    type Output = Distr;
+
+    fn add(self, other: i32) -> Self::Output {
+        let mut res = self.clone();
+        res.shift(other);
+        res
     }
 }
 
@@ -276,20 +282,48 @@ impl Mul<i32> for &Distr {
     type Output = Distr;
 
     fn mul(self, other: i32) -> Self::Output {
-        let res = self.clone();
+        let mut res = self.clone();
         res.scale(other);
         res
     }
 }
 
-impl Add<PartialDistr> for Distr {
-    // stuff
+impl Add<&PartialDistr> for Distr {
+    type Output = PartialDistr;
+
+    fn add(self, other: &PartialDistr) -> Self::Output {
+        let mut res = PartialDistr::default();
+        for &(c, p) in self.dist.iter() {
+            let p = f(p);
+            for (c2, p2) in other.dist.iter() {
+                merge_or_insert(&mut res.dist, round_bucket(c+c2), p*p2);
+                res.total += p*p2;
+            }
+        }
+        res
+    }
 }
 
-#[derive(Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct PartialDistr {
-    total: F,
-    dist: FxHashMap<Meso, F>,
+    pub total: F,
+    pub dist: FxHashMap<Meso, F>,
+}
+
+impl PartialDistr {
+    pub fn mix(&mut self, other: Self) {
+        let tmp = self.total;
+        for (&c, &p) in other.dist.iter() {
+            merge_or_insert(&mut self.dist, c, p);
+            self.total += p;
+        }
+    }
+}
+
+impl Into<Distr> for PartialDistr {
+    fn into(self) -> Distr {
+        Distr::new(self.dist.into_iter().map(|(c,p)| (c,g(p))).collect())
+    }
 }
 
 impl Ord for PartialDistr {
@@ -330,8 +364,9 @@ impl Mul<i32> for &PartialDistr {
     type Output = PartialDistr;
 
     fn mul(self, other: i32) -> Self::Output {
-        let mut res = *self.clone();
-        res.dist.iter_mut().for_each(|(c, _)| *c *= other);
+        let mut res = PartialDistr::default();
+        res.dist = self.dist.iter().map(|(k, v)| (k*other, *v)).collect();
+        res.total= self.total;
         res
     }
 }

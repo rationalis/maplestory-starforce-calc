@@ -38,12 +38,15 @@ pub fn calculate3(level: i32) {
             }
 
             let joint = Distr::sim(start);
-            dbg!(start, joint.len(), joint.get(&(0,0)), joint.get(&(1, 1)));
-            for k in joint.keys() {
-                print!("{:?} :: ", k);
-            }
-            print!("\n");
+            // dbg!(start, joint.len(), joint.get(&(0,0)), joint.get(&(1, 1)));
+            // for k in joint.keys() {
+            //     print!("{:?} :: ", k);
+            // }
+            // print!("\n");
 
+            let cost_below = COST[(start - 1) as usize];
+            let mut dist = PartialDistr::default();
+            let mut dist_chance_time = PartialDistr::default();
             let mut keys: Vec<_> = joint.keys().collect();
             keys.sort_unstable();
             let keys = keys;
@@ -51,66 +54,83 @@ pub fn calculate3(level: i32) {
             let mut booms_dists = Vec::new();
             downs_dists.push(Distr::zero());
             booms_dists.push(Distr::zero());
-            let base_downs_dist = panic!();
-            let base_booms_dist = panic!();
+            let base_downs_dist = dist_below(&table, &table_chance_time, start);
+            let base_booms_dist = if boom > 0.0 {
+                table.get(&(12, start)).unwrap().clone()
+            } else {
+                Distr::zero()
+            };
+            downs_dists.push(base_downs_dist);
+            if boom > 0.0 {
+                booms_dists.push(base_booms_dist);
+            }
             for key in keys {
                 let &(downs, booms) = key;
                 let (downs, booms) = (downs as usize, booms as usize);
-                if downs as usize == downs_dists.len() {
-                    downs_dists.push(downs_dists.last().unwrap().add(base_downs_dist));
+                if downs == downs_dists.len() {
+                    downs_dists.push(downs_dists.last().unwrap() + &downs_dists[1]);
                 }
-                if booms as usize == booms_dists.len() {
-                    booms_dists.push(booms_dists.last().unwrap().add(base_booms_dist));
+                if booms == booms_dists.len() {
+                    booms_dists.push(booms_dists.last().unwrap() + &booms_dists[1]);
                 }
-                let booms_plus_downs = &downs_dists[downs as usize] + &booms_dists[booms as usize];
+                let booms_plus_downs = &downs_dists[downs] + &booms_dists[booms];
                 let stays = joint.get(key).unwrap() * cost;
-                dist += booms_plus_downs + stays;
-            }
-
-            let mut dist = Distr::zero();
-            let base = Distr::geom(up);
-            // cost of attempts at start->target
-            let mut base2 = base.clone();
-            base2.scale(COST[start as usize]);
-            dist = dist.add(&base2);
-
-            let mut dist_chance_time = None;
-
-            if down > 0. {
-                let cost_below = COST[(start - 1) as usize];
-                if start < 21 {
-                    // if we are under 21* and the down chance is >0, then chance
-                    // time may trigger when we fall to this star and fall again
-                    let mut fails = base.clone();
-                    fails.shift(-1);
-                    // the normal cost when falling to the star below this one -
-                    // note that this is also affected by chance time so we make
-                    // a call to dist_below
-                    let normal_cost = dist_below(&table, &table_chance_time, start);
-                    let chance_time_cost = fails.chance_time(&normal_cost, cost_below);
-                    // dbg!(&chance_time_cost.dist[0..100]);
-                    dist_chance_time = Some(dist.add(&chance_time_cost));
+                if down > 0.0 && start < 21 {
+                    let bpd_chance_time = if downs > 0 {
+                        &(&downs_dists[downs - 1] + cost_below) + &booms_dists[booms]
+                    } else {
+                        booms_dists[booms].clone()
+                    };
+                    let total_cost_chance_time = bpd_chance_time + &stays;
+                    dist_chance_time.mix(total_cost_chance_time);
                 }
-                let mut fails = base.clone();
-                fails.shift(-1);
-                // dbg!(start, &fails.dist);
-                let ds_cost = dist_below(&table, &table_chance_time, start);
-                let ds_cost = fails.product(&ds_cost);
-                // dbg!(&ds_cost.dist[0..100]);
-                dist = dist.add(&ds_cost);
+                let total_cost = booms_plus_downs + &stays;
+                // dbg!(key, &stays, &total_cost);
+                dist.mix(total_cost);
             }
-            if boom > 0. {
-                let booms = Distr::booms(up, boom);
-                let boom_cost = table.get(&(12, start)).unwrap();
-                let boom_cost = &booms.product(boom_cost);
-                dist = dist.add(boom_cost);
-                dist_chance_time = dist_chance_time.map(|d| d.add(boom_cost));
+
+            // dbg!(dist.total, dist_chance_time.total);
+
+            if start < 21 && down > 0.0 {
+                update(&mut table_chance_time, start, target, dist_chance_time.into());
             }
-            if let Some(dist) = dist_chance_time {
-                print!("chance time: ");
-                update(&mut table_chance_time, start, target, dist);
-            }
-            update(&mut table, start, target, dist);
+            update(&mut table, start, target, dist.into());
+
+            // if down > 0. {
+            //     let cost_below = COST[(start - 1) as usize];
+            //     if start < 21 {
+            //         // if we are under 21* and the down chance is >0, then chance
+            //         // time may trigger when we fall to this star and fall again
+            //         let mut fails = base.clone();
+            //         fails.shift(-1);
+            //         // the normal cost when falling to the star below this one -
+            //         // note that this is also affected by chance time so we make
+            //         // a call to dist_below
+            //         let normal_cost = dist_below(&table, &table_chance_time, start);
+            //         let chance_time_cost = fails.chance_time(&normal_cost, cost_below);
+            //         // dbg!(&chance_time_cost.dist[0..100]);
+            //         dist_chance_time = Some(dist.add(&chance_time_cost));
+            //     }
+            //     let mut fails = base.clone();
+            //     fails.shift(-1);
+            //     // dbg!(start, &fails.dist);
+            //     let ds_cost = dist_below(&table, &table_chance_time, start);
+            //     let ds_cost = fails.product(&ds_cost);
+            //     // dbg!(&ds_cost.dist[0..100]);
+            //     dist = dist.add(&ds_cost);
+            // }
+            // if boom > 0. {
+            //     let booms = Distr::booms(up, boom);
+            //     let boom_cost = table.get(&(12, start)).unwrap();
+            //     let boom_cost = &booms.product(boom_cost);
+            //     dist = dist.add(boom_cost);
+            //     dist_chance_time = dist_chance_time.map(|d| d.add(boom_cost));
+            // }
+            // if let Some(dist) = dist_chance_time {
+            //     print!("chance time: ");
+            //     update(&mut table_chance_time, start, target, dist);
+            // }
+            // update(&mut table, start, target, dist);
         }
     }
 }
