@@ -19,9 +19,7 @@ pub fn round_bucket(mesos: Meso) -> (usize, Meso) {
     if mesos <= 1000 {
         return (mesos as usize, mesos);
     }
-    let (mut u, c) = round_bucket_impl(&*BINS, mesos);
-    u += 1001;
-    (u, c)
+    round_bucket_impl(&*BINS, mesos)
 }
 
 pub fn round_bucket_impl(bins: &[Meso], mesos: Meso) -> (usize, Meso) {
@@ -47,26 +45,8 @@ pub fn round_bucket_impl(bins: &[Meso], mesos: Meso) -> (usize, Meso) {
     (idx, bins[idx])
 }
 
-pub fn round_bucket_linear(mut idx: usize, mesos: Meso) -> (usize, Meso) {
-    if mesos <= BINS[0] {
-        return (0, mesos);
-    }
-    while BINS[idx] < mesos {
-        idx += 1;
-    }
-    if BINS_D[idx] <= mesos {
-        (idx, BINS[idx])
-    } else {
-        (idx-1, BINS[idx-1])
-    }
-}
-
 pub fn unbin(u: usize) -> Meso {
-    if u <= 1000 {
-        u as i32
-    } else {
-        BINS[u-1001]
-    }
+    BINS[u]
 }
 
 #[derive(Clone, Debug)]
@@ -176,20 +156,16 @@ impl Distr {
     }
 
     pub fn add(&self, other: &Self) -> Self {
-        let mut dist = [0.0; 1001 + NUM_BINS];
+        let mut dist = [0.0; NUM_BINS];
         for &(c, p) in self.dist.iter() {
+            let lookup = &BIN_SUMS[c];
             for &(c2, p2) in other.dist.iter() {
-                let i =
-                    if c <= 1000 || c2 <= 1000 {
-                        round_bucket(unbin(c) + unbin(c2)).0
-                    } else {
-                        BIN_SUMS[(c-1001)*NUM_BINS + c2-1001]
-                    };
+                let i = lookup[c2] as usize;
                 dist[i] += p*p2;
             }
         }
         let dist = dist
-            .into_iter()
+            .iter()
             .enumerate()
             .filter_map(|(i, &p)|
                         if p == 0.0 {

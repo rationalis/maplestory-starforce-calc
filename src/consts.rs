@@ -24,7 +24,8 @@ pub const MAX_BOOMS: usize = 15;
 pub const MAX_DOWNS: usize = 64;
 
 pub const DIST_THRESHOLD: f64 = 1e-6;
-pub const NUM_BINS: usize = 3000;
+pub const IDENT_BINS: usize = 1000;
+pub const NUM_BINS: usize = 4096;
 pub const BIN_EXP : f64 = 1.0 + 1.0 / 256.0;
 
 pub const PROBS_F64: [[f64; 4]; PROB_COUNT] = [
@@ -68,8 +69,12 @@ lazy_static! {
     pub static ref BINS: [Meso; NUM_BINS] = {
         let mut bins = [0; NUM_BINS];
         for i in 0..NUM_BINS {
-            let frac: f64 = BIN_EXP.powi((i as i32)+1);
-            bins[i] = (1000f64 * frac).round() as i32;
+            if i <= IDENT_BINS {
+                bins[i] = i as i32;
+            } else {
+                let frac: f64 = BIN_EXP.powi((i as i32)-1000);
+                bins[i] = (1000f64 * frac).round() as i32;
+            }
         }
         bins
     };
@@ -80,12 +85,14 @@ lazy_static! {
         }
         bins_d
     };
-    pub static ref BIN_SUMS: Vec<usize> = {
-        let mut bin_sums = Vec::new();
+    pub static ref BIN_SUMS: Vec<[u16; NUM_BINS]> = {
+        let mut bin_sums = Vec::with_capacity(NUM_BINS);
         for i in 0..NUM_BINS {
+            let mut bin_sums_row = [0; NUM_BINS];
             for j in 0..NUM_BINS {
-                bin_sums.push(round_bucket(BINS[i] + BINS[j]).0);
+                bin_sums_row[j] = round_bucket(BINS[i] + BINS[j]).0 as u16;
             }
+            bin_sums.push(bin_sums_row);
         }
         bin_sums
     };
