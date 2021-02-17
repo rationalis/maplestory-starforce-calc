@@ -1,8 +1,9 @@
 use crate::consts::*;
 use crate::prio::Prio;
 
+use std::cmp::Ordering;
 use std::hash::Hash;
-use std::ops::AddAssign;
+use std::ops::{Add, AddAssign, Mul, MulAssign};
 
 use rustc_hash::FxHashMap;
 
@@ -240,6 +241,10 @@ impl Distr {
         Self::new(dist)
     }
 
+    pub fn mix(&mut self, other: &PartialDistr) -> &mut Self {
+        panic!()
+    }
+
     pub fn expected_cost(&self) -> u64 {
         let sum: f64 = self.dist.iter().map(|(c, p)| (*c as f64)*p).sum();
         let sum = (UNIT as f64) * sum;
@@ -247,6 +252,39 @@ impl Distr {
     }
 }
 
+impl Add for &Distr {
+    type Output = Distr;
+
+    fn add(self, other: Self) -> Self::Output {
+        Distr::add(self, other)
+    }
+}
+
+impl AddAssign<&Distr> for Distr {
+    fn add_assign(&mut self, other: &Self) {
+        *self = self.add(other)
+    }
+}
+
+impl MulAssign<i32> for Distr {
+    fn mul_assign(&mut self, other: i32) {
+        self.scale(other);
+    }
+}
+
+impl Mul<i32> for &Distr {
+    type Output = Distr;
+
+    fn mul(self, other: i32) -> Self::Output {
+        let res = self.clone();
+        res.scale(other);
+        res
+    }
+}
+
+impl Add<PartialDistr> for Distr {
+    // stuff
+}
 
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct PartialDistr {
@@ -255,13 +293,13 @@ pub struct PartialDistr {
 }
 
 impl Ord for PartialDistr {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> Ordering {
         self.total.cmp(&other.total)
     }
 }
 
 impl PartialOrd for PartialDistr {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.total.cmp(&other.total))
     }
 }
@@ -287,3 +325,14 @@ impl AddAssign<(Meso, F)> for PartialDistr {
         self.total += p;
     }
 }
+
+impl Mul<i32> for &PartialDistr {
+    type Output = PartialDistr;
+
+    fn mul(self, other: i32) -> Self::Output {
+        let mut res = *self.clone();
+        res.dist.iter_mut().for_each(|(c, _)| *c *= other);
+        res
+    }
+}
+

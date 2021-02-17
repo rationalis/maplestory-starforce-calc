@@ -28,6 +28,7 @@ pub fn calculate3(level: i32) {
                 update(&mut table, start, target, dist);
                 continue;
             }
+            let cost = COST[start as usize];
             let [up, _stay, down, boom] = PROBS_F64[(start - 10) as usize];
             if down == 0. && boom == 0. {
                 let mut dist = Distr::geom(up);
@@ -42,6 +43,29 @@ pub fn calculate3(level: i32) {
                 print!("{:?} :: ", k);
             }
             print!("\n");
+
+            let mut keys: Vec<_> = joint.keys().collect();
+            keys.sort_unstable();
+            let keys = keys;
+            let mut downs_dists = Vec::new();
+            let mut booms_dists = Vec::new();
+            downs_dists.push(Distr::zero());
+            booms_dists.push(Distr::zero());
+            let base_downs_dist = panic!();
+            let base_booms_dist = panic!();
+            for key in keys {
+                let &(downs, booms) = key;
+                let (downs, booms) = (downs as usize, booms as usize);
+                if downs as usize == downs_dists.len() {
+                    downs_dists.push(downs_dists.last().unwrap().add(base_downs_dist));
+                }
+                if booms as usize == booms_dists.len() {
+                    booms_dists.push(booms_dists.last().unwrap().add(base_booms_dist));
+                }
+                let booms_plus_downs = &downs_dists[downs as usize] + &booms_dists[booms as usize];
+                let stays = joint.get(key).unwrap() * cost;
+                dist += booms_plus_downs + stays;
+            }
 
             let mut dist = Distr::zero();
             let base = Distr::geom(up);

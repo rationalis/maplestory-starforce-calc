@@ -68,7 +68,7 @@ impl<K, V> Prio<K, V> where
         unsafe {popped.unwrap_unchecked()}
     }
 
-    pub fn push<D>(&mut self, key: K, mut val: D) where
+    pub fn push<D>(&mut self, key: K, val: D) where
         V: std::ops::AddAssign<D>,
         D: Copy + Into<V>
     {
