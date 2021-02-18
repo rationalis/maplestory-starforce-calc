@@ -19,6 +19,8 @@ pub type Star = u8;
 pub const UNIT: Meso = 100_000;
 pub const STAR_LIMIT: Star = 22;
 pub const PROB_COUNT: usize = (STAR_LIMIT - 10) as usize;
+pub const NUM_LEVELS: usize = 4;
+pub const LEVELS: [i32; NUM_LEVELS] = [140, 150, 160, 200];
 
 pub const MAX_BOOMS: usize = 15;
 pub const MAX_DOWNS: usize = 64;
@@ -55,13 +57,13 @@ lazy_static! {
         }
         probs
     };
-    pub static ref LEVEL: i32 = 160;
-    pub static ref COST: [Meso; STAR_LIMIT as usize] = {
-        let mut costs = [0; STAR_LIMIT as usize];
+    pub static ref COST: [[Meso; STAR_LIMIT as usize]; NUM_LEVELS] = {
+        let mut costs = [[0; STAR_LIMIT as usize]; NUM_LEVELS];
 
-        for i in 10..22 {
-            let i = i as usize;
-            costs[i] = cost(i as u8, *LEVEL);
+        for (i, &level) in LEVELS.iter().enumerate() {
+            for star in 10u8..22 {
+                costs[i as usize][star as usize] = cost(star, level);
+            }
         }
 
         costs

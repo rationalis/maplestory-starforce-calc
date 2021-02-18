@@ -8,7 +8,8 @@ pub fn pp(num: u64) -> String {
     format_num!("0.3s", num as f64)
 }
 
-pub fn calculate3(level: i32) {
+pub fn calculate3(level: i32, safeguard: bool) {
+    let level = LEVELS.iter().position(|&e| e == level).unwrap();
     lazy_static::initialize(&BIN_SUMS);
     lazy_static::initialize(&COST);
     let mut table: FxHashMap<(Star, Star), Distr> = FxHashMap::default();
@@ -37,18 +38,23 @@ pub fn calculate3(level: i32) {
                 update(&mut table, start, target, dist);
                 continue;
             }
-            let cost = COST[start as usize];
-            let [up, _stay, down, boom] = PROBS_F64[(start - 10) as usize];
+            let cost = COST[level][start as usize];
+            let [up, stay, mut down, mut boom] = PROBS_F64[(start - 10) as usize];
             if down == 0. && boom == 0. {
                 let mut dist = Distr::geom(up);
-                dist.scale(COST[start as usize]);
+                dist.scale(COST[level][start as usize]);
                 update(&mut table, start, target, dist);
                 continue;
             }
 
-            let joint = Distr::sim(start);
+            if safeguard && start <= 16 {
+                down += boom;
+                boom = 0.0;
+            }
 
-            let cost_below = COST[(start - 1) as usize];
+            let joint = Distr::sim([up, stay, down, boom]);
+
+            let cost_below = COST[level][(start - 1) as usize];
             let mut dist = PartialDistr::default();
             let mut dist_chance_time = PartialDistr::default();
             let mut keys: Vec<_> = joint.keys().collect();

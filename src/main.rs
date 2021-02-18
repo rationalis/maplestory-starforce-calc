@@ -18,6 +18,6 @@ use maplestory_calculator::calc::*;
 
 fn main() {
     let t = SystemTime::now();
-    calculate3(160);
+    calculate3(160, false);
     println!("Finished in {} seconds", t.elapsed().unwrap().as_secs_f32());
 }

@@ -121,8 +121,8 @@ impl Distr {
     /// At checkpoint stars with 0 down chance (10, 15, 20), the number of downs
     /// is fixed to 0 and the number of attempts can vary, so this function will
     /// also map (downs, booms) to a distribution.
-    pub fn sim(start: Star) -> FxHashMap<(u8, u8), PartialDistr> {
-        let [up, stay, down, boom] = PROBS[(start - 10) as usize];
+    pub fn sim(probs: [f64; 4]) -> FxHashMap<(u8, u8), PartialDistr> {
+        let [up, stay, down, boom] = probs;
         let mut successes = FxHashMap::default();
         let mut states: Prio<(u8, u8), PartialDistr> = Prio::new();
         let update = |states: &mut Prio<_, _>, k, v: (Meso, F)| {
