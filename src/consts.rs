@@ -25,8 +25,8 @@ pub const MAX_DOWNS: usize = 64;
 
 pub const DIST_THRESHOLD: f64 = 1e-6;
 pub const IDENT_BINS: usize = 1000;
-pub const NUM_BINS: usize = 4096;
-pub const BIN_EXP : f64 = 1.0 + 1.0 / 256.0;
+pub const NUM_BINS: usize = 1900;
+pub const BIN_EXP : f64 = 1.01;
 
 pub const PROBS_F64: [[f64; 4]; PROB_COUNT] = [
     [ 0.5, 0.5, 0., 0. ],
