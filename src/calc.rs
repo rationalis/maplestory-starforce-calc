@@ -3,13 +3,22 @@ use crate::distr::*;
 
 use rustc_hash::FxHashMap;
 
+pub fn pp(num: u64) -> String {
+    use format_num::format_num;
+    format_num!("0.3s", num as f64)
+}
+
 pub fn calculate3(level: i32) {
-    let cost = &(*COST); // just to trigger printlns
+    lazy_static::initialize(&BIN_SUMS);
+    lazy_static::initialize(&COST);
     let mut table: FxHashMap<(Star, Star), Distr> = FxHashMap::default();
     let mut table_chance_time: FxHashMap<(Star, Star), Distr> = FxHashMap::default();
     table.insert((12, 12), Distr::zero());
     let update = |table: &mut FxHashMap<_, _>, start: Star, target: Star, dist: Distr| {
-        println!("{} -> {} dist size: {} expected cost: {}", start, target, dist.dist.len(), dist.expected_cost());
+        let s = dist.stats();
+        println!("{} -> {} dist size: {} mean: {} stddev: {}", start, target, dist.dist.len(), pp(s.0), pp(s.1));
+        let q = dist.quartiles();
+        println!("quartiles: {} {} {} {} {}", pp(q.0), pp(q.1), pp(q.2), pp(q.3), pp(q.4));
         table.insert((start, target), dist);
     };
     let dist_below = |table: &FxHashMap<_, Distr>, table_chance: &FxHashMap<_, _>, start: Star| {

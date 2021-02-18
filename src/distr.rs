@@ -51,7 +51,7 @@ pub fn unbin(u: u16) -> Meso {
 
 #[derive(Clone, Debug)]
 pub struct Distr {
-    pub dist: Vec<(u16, f64)>
+    pub dist: Vec<(u16, f64)>,
 }
 
 impl Distr {
@@ -177,10 +177,54 @@ impl Distr {
         Self::new(dist)
     }
 
-    pub fn expected_cost(&self) -> u64 {
-        let sum: f64 = self.dist.iter().map(|(c, p)| (unbin(*c) as f64)*p).sum();
-        let sum = (UNIT as f64) * sum;
-        sum as u64
+    /// Calculate the mean and standard deviation.
+    pub fn stats(&self) -> (u64, u64) {
+        let mean: f64 = self.dist.iter().map(|(c, p)| (unbin(*c) as f64)*p).sum();
+        let stddev: f64 = self.dist.iter()
+            .map(|(c, p)| (unbin(*c) as f64 - mean).powi(2) * p)
+            .sum::<f64>().sqrt();
+        let mean = (UNIT as f64) * mean;
+        let stddev = (UNIT as f64) * stddev;
+        (mean as u64, stddev as u64)
+    }
+
+    /// Calculate the lowest known cost, 3 quartiles, and the 99th percentile.
+    pub fn quartiles(&self) -> (u64, u64, u64, u64, u64) {
+        let mut cdf = 0.0;
+        let dist = &self.dist;
+        let mut i = 0;
+        let mut quartile1 = 0;
+        while cdf <= 0.25 {
+            quartile1 = dist[i].0;
+            cdf += dist[i].1;
+            i += 1;
+        }
+        let mut quartile2 = 0;
+        while cdf <= 0.5 {
+            quartile2 = dist[i].0;
+            cdf += dist[i].1;
+            i += 1;
+        }
+        let mut quartile3 = 0;
+        while cdf <= 0.75 {
+            quartile3 = dist[i].0;
+            cdf += dist[i].1;
+            i += 1;
+        }
+        let mut max = 0;
+        while cdf <= 0.99 {
+            max = dist[i].0;
+            cdf += dist[i].1;
+            i += 1;
+        }
+        let min = dist.first().unwrap().0;
+
+        (unbin(min) as u64 * UNIT as u64,
+         unbin(quartile1) as u64 * UNIT as u64,
+         unbin(quartile2) as u64 * UNIT as u64,
+         unbin(quartile3) as u64 * UNIT as u64,
+         unbin(max) as u64 * UNIT as u64,
+        )
     }
 
     pub fn iter(&self) -> impl Iterator<Item=(Meso, f64)> + '_ {
