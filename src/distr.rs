@@ -15,14 +15,14 @@ pub fn merge_or_insert<K, V, D>(dist: &mut FxHashMap<K, V>, key: K, p: D) where
         .or_insert(p.into());
 }
 
-pub fn round_bucket(mesos: Meso) -> (usize, Meso) {
+pub fn round_bucket(mesos: Meso) -> (u16, Meso) {
     if mesos <= 1000 {
-        return (mesos as usize, mesos);
+        return (mesos as u16, mesos);
     }
     round_bucket_impl(&*BINS, mesos)
 }
 
-pub fn round_bucket_impl(bins: &[Meso], mesos: Meso) -> (usize, Meso) {
+pub fn round_bucket_impl(bins: &[Meso], mesos: Meso) -> (u16, Meso) {
     let c = mesos;
     let res = bins.binary_search(&c);
     let idx = match res {
@@ -42,20 +42,20 @@ pub fn round_bucket_impl(bins: &[Meso], mesos: Meso) -> (usize, Meso) {
             closest.unwrap()
         }
     };
-    (idx, bins[idx])
+    (idx as u16, bins[idx])
 }
 
-pub fn unbin(u: usize) -> Meso {
-    BINS[u]
+pub fn unbin(u: u16) -> Meso {
+    BINS[u as usize]
 }
 
 #[derive(Clone, Debug)]
 pub struct Distr {
-    pub dist: Vec<(usize, f64)>
+    pub dist: Vec<(u16, f64)>
 }
 
 impl Distr {
-    fn new(dist: Vec<(usize, f64)>) -> Self {
+    fn new(dist: Vec<(u16, f64)>) -> Self {
         let mut res = Self { dist };
         res.truncate(None);
         res.dist.sort_unstable_by_key(|(c, _)| *c);
@@ -95,7 +95,7 @@ impl Distr {
 
     pub fn constant(c: usize) -> Self {
         Self {
-            dist: vec![(c, 1.0)],
+            dist: vec![(round_bucket(c as i32).0, 1.0)],
         }
     }
 
@@ -158,10 +158,10 @@ impl Distr {
     pub fn add(&self, other: &Self) -> Self {
         let mut dist = [0.0; NUM_BINS];
         for &(c, p) in self.dist.iter() {
-            let lookup = &BIN_SUMS[c];
+            let lookup = &BIN_SUMS[c as usize];
             for &(c2, p2) in other.dist.iter() {
-                let i = lookup[c2] as usize;
-                dist[i] += p*p2;
+                let i = lookup[c2 as usize];
+                dist[i as usize] += p*p2;
             }
         }
         let dist = dist
@@ -171,7 +171,7 @@ impl Distr {
                         if p == 0.0 {
                             None
                         } else {
-                            Some((i, p))
+                            Some((i as u16, p))
                         }
             ).collect();
         Self::new(dist)
