@@ -15,14 +15,14 @@ pub fn merge_or_insert<K, V, D>(dist: &mut FxHashMap<K, V>, key: K, p: D) where
         .or_insert(p.into());
 }
 
-pub fn round_bucket(mesos: Meso) -> (usize, Meso) {
+pub fn round_bucket(mesos: Meso) -> (u16, Meso) {
     if mesos <= 1000 {
-        return (mesos as usize, mesos);
+        return (mesos as u16, mesos);
     }
     round_bucket_impl(&*BINS, mesos)
 }
 
-pub fn round_bucket_impl(bins: &[Meso], mesos: Meso) -> (usize, Meso) {
+pub fn round_bucket_impl(bins: &[Meso], mesos: Meso) -> (u16, Meso) {
     let c = mesos;
     let res = bins.binary_search(&c);
     let idx = match res {
@@ -42,23 +42,22 @@ pub fn round_bucket_impl(bins: &[Meso], mesos: Meso) -> (usize, Meso) {
             closest.unwrap()
         }
     };
-    (idx, bins[idx])
+    (idx as u16, bins[idx])
 }
 
-pub fn unbin(u: usize) -> Meso {
-    BINS[u]
+pub fn unbin(u: u16) -> Meso {
+    BINS[u as usize]
 }
 
 #[derive(Clone, Debug)]
 pub struct Distr {
-    pub dist: Vec<(usize, f64)>
+    pub dist: Vec<(u16, f64)>
 }
 
 impl Distr {
-    fn new(dist: Vec<(usize, f64)>) -> Self {
+    fn new(dist: Vec<(u16, f64)>) -> Self {
         let mut res = Self { dist };
         res.truncate(None);
-        res.dist.sort_unstable_by_key(|(c, _)| *c);
         res
     }
 
@@ -75,27 +74,28 @@ impl Distr {
         self.dist.sort_unstable_by_key(|(_,p)| f(*p));
         self.dist.reverse();
         let mut total_prob = 0.0;
-        let mut last_key = 0;
         for i in 0..self.dist.len() {
             total_prob += self.dist[i].1;
             if total_prob > 1.0 - threshold {
-                last_key = self.dist[i].0;
                 self.dist.truncate(i+1);
                 break;
             }
         }
+        self.dist.sort_unstable_by_key(|(c, _)| *c);
+        let max = self.dist.last().unwrap().0;
         if total_prob < 1.0 {
-            if last_key < 66 {
-                self.dist.push((last_key, 1.0 - total_prob));
+            // self.dist.push((max + 1, 1.0 - total_prob));
+            if max < 66 {
+                self.dist.push((max+1, 1.0 - total_prob));
             } else {
                 self.normalize();
             }
         }
     }
 
-    pub fn constant(c: usize) -> Self {
+    pub fn constant(c: Meso) -> Self {
         Self {
-            dist: vec![(c, 1.0)],
+            dist: vec![(round_bucket(c).0, 1.0)],
         }
     }
 
@@ -156,23 +156,45 @@ impl Distr {
     }
 
     pub fn add(&self, other: &Self) -> Self {
+        use ndarray::{Array1, Array2, Array, ArrayBase, Ix2};
+        // type V = ArrayD<f64>;
+        let dist1: (Vec<_>, Vec<f64>) = self.dist.iter().cloned().unzip();
+        let dist1: Array1<_> = dist1.1.into();
+        let dist1: Array2<_> = dist1.into_shape((self.dist.len(), 1)).unwrap();
+        let dist2: (Vec<_>, Vec<f64>) = other.dist.iter().cloned().unzip();
+        let dist2: Array1<_> = dist2.1.into();
+        let dist2: Array2<_> = dist2.into_shape((1, other.dist.len())).unwrap();
+
+        let outer_product = dist1.dot(&dist2);
         let mut dist = [0.0; NUM_BINS];
-        for &(c, p) in self.dist.iter() {
-            let lookup = &BIN_SUMS[c];
-            for &(c2, p2) in other.dist.iter() {
-                let i = lookup[c2] as usize;
-                dist[i] += p*p2;
+        for (i, row) in outer_product.outer_iter().enumerate() {
+            let lookup = &BIN_SUMS[self.dist[i].0 as usize];
+            for (j, elem) in row.indexed_iter() {
+                let i = lookup[other.dist[j].0 as usize];
+                dist[i as usize] += elem;
             }
         }
+
+        // for &(c, p) in self.dist.iter() {
+        //     let lookup = &BIN_SUMS[c as usize];
+        //     let p = p;
+        //     for &(c2, p2) in other.dist.iter() {
+        //         let i = lookup[c2 as usize] as usize;
+        //         dist[i] += p*p2;
+        //     }
+        // }
         let dist = dist
             .iter()
             .enumerate()
-            .filter_map(|(i, &p)|
-                        if p == 0.0 {
-                            None
-                        } else {
-                            Some((i, p))
-                        }
+            .filter_map(
+                |(i, &p)|
+                {
+                    if p == 0.0 {
+                        None
+                    } else {
+                        Some((i as u16, p))
+                    }
+                }
             ).collect();
         Self::new(dist)
     }
@@ -185,6 +207,14 @@ impl Distr {
 
     pub fn iter(&self) -> impl Iterator<Item=(Meso, f64)> + '_ {
         self.dist.iter().map(|&(i, p)| (unbin(i), p))
+    }
+}
+
+impl Into<Vec<(u64, f64)>> for Distr {
+    fn into(self) -> Vec<(u64, f64)> {
+        self.dist.iter()
+            .map(|&(c, p)| (unbin(c) as u64 * UNIT as u64, p))
+            .collect()
     }
 }
 

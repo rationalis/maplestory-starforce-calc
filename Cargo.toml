@@ -19,3 +19,18 @@ indexmap = "1.6.1"
 noisy_float = { version = "0.1.13", features = ["serde-1"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+bincode = "1.3.1"
+ndarray = { version = "0.14.0", features = ["blas"] }
+
+blas-src = { version = "0.7.0", default-features = false, features = ["openblas"] }
+openblas-src = { version = "0.10.2", default-features = false, features = ["cblas", "system"] }
+
+
+# blas-src = { version = "0.7.0", default-features = false, features = ["intel-mkl"] }
+# intel-mkl-src = { version = "0.6.0", default-features = false }
+
+[patch.crates-io]
+blas-src = { path = "blas-src" }
+intel-mkl-src = { path = "intel-mkl-src/intel-mkl-src" }
+openblas-src = { path = "openblas-src/openblas-src" }
+ndarray = { path = "ndarray" }

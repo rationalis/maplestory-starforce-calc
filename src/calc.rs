@@ -3,7 +3,7 @@ use crate::distr::*;
 
 use rustc_hash::FxHashMap;
 
-pub fn calculate3(level: i32) {
+pub fn calculate3(level: i32) -> FxHashMap<(Star, Star), Vec<(u64, f64)>> {
     let cost = &(*COST); // just to trigger printlns
     let mut table: FxHashMap<(Star, Star), Distr> = FxHashMap::default();
     let mut table_chance_time: FxHashMap<(Star, Star), Distr> = FxHashMap::default();
@@ -22,8 +22,8 @@ pub fn calculate3(level: i32) {
     for target in 11..STAR_LIMIT+1 {
         for start in (10..target).rev() {
             if start != target - 1 {
-                let dist1 = table.get(&(start, start+1)).unwrap();
-                let dist2 = table.get(&(start+1, target)).unwrap();
+                let dist1 = &table[&(start, start+1)];
+                let dist2 = &table[&(start+1, target)];
                 let dist = dist1.add(dist2);
                 update(&mut table, start, target, dist);
                 continue;
@@ -51,7 +51,7 @@ pub fn calculate3(level: i32) {
             booms_dists.push(Distr::zero());
             let base_downs_dist = dist_below(&table, &table_chance_time, start);
             let base_booms_dist = if boom > 0.0 {
-                table.get(&(12, start)).unwrap().clone()
+                table[&(12, start)].clone()
             } else {
                 Distr::zero()
             };
@@ -84,9 +84,14 @@ pub fn calculate3(level: i32) {
             }
 
             if start < 21 && down > 0.0 {
+                print!("chance time: ");
                 update(&mut table_chance_time, start, target, dist_chance_time.into());
             }
             update(&mut table, start, target, dist.into());
         }
     }
+    table.into_iter()
+        .map(|(k, v)|
+             (k, Into::<Vec<(u64, f64)>>::into(v)))
+        .collect()
 }

@@ -2,6 +2,7 @@
 #![feature(map_first_last)]
 #![feature(option_result_unwrap_unchecked)]
 
+use std::collections::HashMap;
 use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
@@ -18,6 +19,16 @@ use maplestory_calculator::calc::*;
 
 fn main() {
     let t = SystemTime::now();
-    calculate3(160);
+    let table = calculate3(160);
     println!("Finished in {} seconds", t.elapsed().unwrap().as_secs_f32());
+
+    // let table: Vec<_> = table.into_iter().collect();
+    // let table: HashMap<String, _> =
+    //     table.into_iter()
+    //     .map(|(k,v)| (format!("{:?}",k), v))
+    //     .collect();
+    // let s = serde_json::to_string(&table).expect("failed tostr");
+    // std::fs::write("output.json", s).expect("failed file write");
+    let mut s = bincode::serialize(&table).unwrap();
+    std::fs::write("output.bcd", s).expect("failed file write");
 }

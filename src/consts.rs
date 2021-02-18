@@ -20,9 +20,6 @@ pub const UNIT: Meso = 100_000;
 pub const STAR_LIMIT: Star = 22;
 pub const PROB_COUNT: usize = (STAR_LIMIT - 10) as usize;
 
-pub const MAX_BOOMS: usize = 15;
-pub const MAX_DOWNS: usize = 64;
-
 pub const DIST_THRESHOLD: f64 = 1e-6;
 pub const IDENT_BINS: usize = 1000;
 pub const NUM_BINS: usize = 4096;
