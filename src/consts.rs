@@ -5,6 +5,11 @@ use noisy_float::prelude::*;
 
 pub type F = R64;
 
+pub fn pp(num: u64) -> String {
+    use format_num::format_num;
+    format_num!("0.3s", num as f64)
+}
+
 pub fn f(f: f64) -> F {
     r64(f)
 }
@@ -26,8 +31,8 @@ pub const MAX_BOOMS: usize = 15;
 pub const MAX_DOWNS: usize = 64;
 
 pub const DIST_THRESHOLD: f64 = 1e-6;
-pub const IDENT_BINS: usize = 1000;
-pub const NUM_BINS: usize = 1900;
+pub const IDENT_BINS: usize = 100;
+pub const NUM_BINS: usize = 1300;
 pub const BIN_EXP: f64 = 1.01;
 
 pub const PROBS_F64: [[f64; 4]; PROB_COUNT] = [
@@ -74,8 +79,8 @@ lazy_static! {
             if i <= IDENT_BINS {
                 bins[i] = i as i32;
             } else {
-                let frac: f64 = BIN_EXP.powi((i as i32) - 1000);
-                bins[i] = (1000f64 * frac).round() as i32;
+                let frac: f64 = BIN_EXP.powi((i as i32) - IDENT_BINS as i32);
+                bins[i] = (IDENT_BINS as f64 * frac).round() as i32;
             }
         }
         bins
@@ -117,10 +122,11 @@ pub fn cost(star: Star, level: i32) -> i32 {
     let cost = 1000f32 + (level_factor as f32) * star_factor / denom;
     let cost_approx = round(cost as i32, UNIT) / UNIT;
     println!(
-        "costs {} mesos at {} stars, rounded to {}",
-        cost,
+        "at level {} it costs {} mesos at {} stars, rounded to {}",
+        level,
+        pp(cost as u64),
         star,
-        cost_approx * UNIT
+        pp((round_bucket(cost_approx).1 * UNIT) as u64)
     );
     cost_approx
 }

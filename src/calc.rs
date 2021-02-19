@@ -3,11 +3,6 @@ use crate::distr::*;
 
 use rustc_hash::FxHashMap;
 
-pub fn pp(num: u64) -> String {
-    use format_num::format_num;
-    format_num!("0.3s", num as f64)
-}
-
 pub fn calculate3(level: i32, safeguard: bool) {
     let level = LEVELS.iter().position(|&e| e == level).unwrap();
     lazy_static::initialize(&BIN_SUMS);

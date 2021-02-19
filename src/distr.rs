@@ -19,7 +19,7 @@ where
 }
 
 pub fn round_bucket(mesos: Meso) -> (u16, Meso) {
-    if mesos <= 1000 {
+    if mesos <= IDENT_BINS as i32 {
         return (mesos as u16, mesos);
     }
     round_bucket_impl(&*BINS, mesos)
