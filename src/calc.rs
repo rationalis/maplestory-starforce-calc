@@ -17,23 +17,34 @@ pub fn calculate3(level: i32, safeguard: bool) {
     table.insert((12, 12), Distr::zero());
     let update = |table: &mut FxHashMap<_, _>, start: Star, target: Star, dist: Distr| {
         let s = dist.stats();
-        println!("{} -> {} dist size: {} mean: {} stddev: {}", start, target, dist.dist.len(), pp(s.0), pp(s.1));
+        println!(
+            "{} -> {} dist size: {} mean: {} stddev: {}",
+            start,
+            target,
+            dist.dist.len(),
+            pp(s.0),
+            pp(s.1)
+        );
         let q = dist.quartiles();
-        println!("quartiles: {} {} {} {} {}", pp(q.0), pp(q.1), pp(q.2), pp(q.3), pp(q.4));
+        println!(
+            "quartiles: {} {} {} {} {}",
+            pp(q.0),
+            pp(q.1),
+            pp(q.2),
+            pp(q.3),
+            pp(q.4)
+        );
         table.insert((start, target), dist);
     };
     let dist_below = |table: &FxHashMap<_, Distr>, table_chance: &FxHashMap<_, _>, start: Star| {
-        let key = &(start-1, start);
-        table_chance.get(key)
-            .or(table.get(key))
-            .unwrap()
-            .clone()
+        let key = &(start - 1, start);
+        table_chance.get(key).or(table.get(key)).unwrap().clone()
     };
-    for target in 11..STAR_LIMIT+1 {
+    for target in 11..STAR_LIMIT + 1 {
         for start in (10..target).rev() {
             if start != target - 1 {
-                let dist1 = table.get(&(start, start+1)).unwrap();
-                let dist2 = table.get(&(start+1, target)).unwrap();
+                let dist1 = table.get(&(start, start + 1)).unwrap();
+                let dist2 = table.get(&(start + 1, target)).unwrap();
                 let dist = dist1.add(dist2);
                 update(&mut table, start, target, dist);
                 continue;
@@ -99,7 +110,12 @@ pub fn calculate3(level: i32, safeguard: bool) {
             }
 
             if start < 21 && down > 0.0 {
-                update(&mut table_chance_time, start, target, dist_chance_time.into());
+                update(
+                    &mut table_chance_time,
+                    start,
+                    target,
+                    dist_chance_time.into(),
+                );
             }
             update(&mut table, start, target, dist.into());
         }

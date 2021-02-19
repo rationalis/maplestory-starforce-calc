@@ -7,8 +7,11 @@ use std::ops::{Add, AddAssign, Mul, MulAssign};
 
 use rustc_hash::FxHashMap;
 
-pub fn merge_or_insert<K, V, D>(dist: &mut FxHashMap<K, V>, key: K, p: D) where
-    K: Eq + Hash, V: AddAssign<D>, D: Copy + Into<V>
+pub fn merge_or_insert<K, V, D>(dist: &mut FxHashMap<K, V>, key: K, p: D)
+where
+    K: Eq + Hash,
+    V: AddAssign<D>,
+    D: Copy + Into<V>,
 {
     dist.entry(key)
         .and_modify(|p0| *p0 += p)
@@ -64,15 +67,15 @@ impl Distr {
 
     pub fn normalize(&mut self) {
         let total_prob: f64 = self.dist.iter().map(|(_, p)| *p).sum();
-        self.dist.iter_mut().for_each(|(_,p)| *p /= total_prob);
+        self.dist.iter_mut().for_each(|(_, p)| *p /= total_prob);
     }
 
     pub fn truncate(&mut self, threshold: Option<f64>) {
         let threshold = match threshold {
             Some(p) => p,
-            None => DIST_THRESHOLD
+            None => DIST_THRESHOLD,
         };
-        self.dist.sort_unstable_by_key(|(_,p)| f(*p));
+        self.dist.sort_unstable_by_key(|(_, p)| f(*p));
         self.dist.reverse();
         let mut total_prob = 0.0;
         let mut last_key = 0;
@@ -80,7 +83,7 @@ impl Distr {
             total_prob += self.dist[i].1;
             if total_prob > 1.0 - threshold {
                 last_key = self.dist[i].0;
-                self.dist.truncate(i+1);
+                self.dist.truncate(i + 1);
                 break;
             }
         }
@@ -108,13 +111,11 @@ impl Distr {
         let mut remaining = 1.0;
         let mut i = 1;
         while remaining > DIST_THRESHOLD {
-            dist.push((i, remaining*p));
+            dist.push((i, remaining * p));
             i += 1;
             remaining -= remaining * p;
         }
-        Self {
-            dist
-        }
+        Self { dist }
     }
 
     /// Calculate the joint distribution (i.e. negative multinomial) of outcomes.
@@ -136,22 +137,26 @@ impl Distr {
             let ((downs, booms), pdist) = states.pop();
             for (attempts, &p) in pdist.dist.iter() {
                 let attempts = attempts + 1;
-                merge_or_insert(&mut successes, (downs, booms), (attempts, p*up));
-                update(&mut states, (downs+1, booms), (attempts, p*down));
-                update(&mut states, (downs, booms+1), (attempts, p*boom));
-                update(&mut states, (downs, booms), (attempts, p*stay));
+                merge_or_insert(&mut successes, (downs, booms), (attempts, p * up));
+                update(&mut states, (downs + 1, booms), (attempts, p * down));
+                update(&mut states, (downs, booms + 1), (attempts, p * boom));
+                update(&mut states, (downs, booms), (attempts, p * stay));
             }
         }
         successes
     }
 
     pub fn shift(&mut self, c: Meso) -> &mut Self {
-        self.dist.iter_mut().for_each(|(c0, _)| *c0 = round_bucket(unbin(*c0) + c).0);
+        self.dist
+            .iter_mut()
+            .for_each(|(c0, _)| *c0 = round_bucket(unbin(*c0) + c).0);
         self
     }
 
     pub fn scale(&mut self, n: Meso) -> &mut Self {
-        self.dist.iter_mut().for_each(|(c0, _)| *c0 = round_bucket(unbin(*c0) * n).0);
+        self.dist
+            .iter_mut()
+            .for_each(|(c0, _)| *c0 = round_bucket(unbin(*c0) * n).0);
         self
     }
 
@@ -161,28 +166,26 @@ impl Distr {
             let lookup = &BIN_SUMS[c as usize];
             for &(c2, p2) in other.dist.iter() {
                 let i = lookup[c2 as usize];
-                dist[i as usize] += p*p2;
+                dist[i as usize] += p * p2;
             }
         }
         let dist = dist
             .iter()
             .enumerate()
-            .filter_map(|(i, &p)|
-                        if p == 0.0 {
-                            None
-                        } else {
-                            Some((i as u16, p))
-                        }
-            ).collect();
+            .filter_map(|(i, &p)| if p == 0.0 { None } else { Some((i as u16, p)) })
+            .collect();
         Self::new(dist)
     }
 
     /// Calculate the mean and standard deviation.
     pub fn stats(&self) -> (u64, u64) {
-        let mean: f64 = self.dist.iter().map(|(c, p)| (unbin(*c) as f64)*p).sum();
-        let stddev: f64 = self.dist.iter()
+        let mean: f64 = self.dist.iter().map(|(c, p)| (unbin(*c) as f64) * p).sum();
+        let stddev: f64 = self
+            .dist
+            .iter()
             .map(|(c, p)| (unbin(*c) as f64 - mean).powi(2) * p)
-            .sum::<f64>().sqrt();
+            .sum::<f64>()
+            .sqrt();
         let mean = (UNIT as f64) * mean;
         let stddev = (UNIT as f64) * stddev;
         (mean as u64, stddev as u64)
@@ -219,15 +222,16 @@ impl Distr {
         }
         let min = dist.first().unwrap().0;
 
-        (unbin(min) as u64 * UNIT as u64,
-         unbin(quartile1) as u64 * UNIT as u64,
-         unbin(quartile2) as u64 * UNIT as u64,
-         unbin(quartile3) as u64 * UNIT as u64,
-         unbin(max) as u64 * UNIT as u64,
+        (
+            unbin(min) as u64 * UNIT as u64,
+            unbin(quartile1) as u64 * UNIT as u64,
+            unbin(quartile2) as u64 * UNIT as u64,
+            unbin(quartile3) as u64 * UNIT as u64,
+            unbin(max) as u64 * UNIT as u64,
         )
     }
 
-    pub fn iter(&self) -> impl Iterator<Item=(Meso, f64)> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = (Meso, f64)> + '_ {
         self.dist.iter().map(|&(i, p)| (unbin(i), p))
     }
 }
@@ -280,8 +284,8 @@ impl Add<&PartialDistr> for Distr {
         for (c, p) in self.iter() {
             let p = f(p);
             for (c2, p2) in other.dist.iter() {
-                merge_or_insert(&mut res.dist, round_bucket(c+c2).1, p*p2);
-                res.total += p*p2;
+                merge_or_insert(&mut res.dist, round_bucket(c + c2).1, p * p2);
+                res.total += p * p2;
             }
         }
         res
@@ -305,7 +309,12 @@ impl PartialDistr {
 
 impl Into<Distr> for PartialDistr {
     fn into(self) -> Distr {
-        Distr::new(self.dist.into_iter().map(|(c,p)| (round_bucket(c).0,g(p))).collect())
+        Distr::new(
+            self.dist
+                .into_iter()
+                .map(|(c, p)| (round_bucket(c).0, g(p)))
+                .collect(),
+        )
     }
 }
 
@@ -348,9 +357,8 @@ impl Mul<i32> for &PartialDistr {
 
     fn mul(self, other: i32) -> Self::Output {
         let mut res = PartialDistr::default();
-        res.dist = self.dist.iter().map(|(k, v)| (k*other, *v)).collect();
-        res.total= self.total;
+        res.dist = self.dist.iter().map(|(k, v)| (k * other, *v)).collect();
+        res.total = self.total;
         res
     }
 }
-
