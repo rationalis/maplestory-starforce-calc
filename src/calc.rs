@@ -44,11 +44,11 @@ pub fn calculate3(level: i32, safeguard: bool) {
                 update(&mut table, start, target, dist);
                 continue;
             }
-            let cost = COST[level][start as usize];
+            let cost = COST[start as usize];
             let [up, stay, mut down, mut boom] = PROBS_F64[(start - 10) as usize];
             if down == 0. && boom == 0. {
                 let mut dist = Distr::geom(up);
-                dist.scale(COST[level][start as usize]);
+                dist.scale(COST[start as usize]);
                 update(&mut table, start, target, dist);
                 continue;
             }
@@ -60,7 +60,7 @@ pub fn calculate3(level: i32, safeguard: bool) {
 
             let joint = Distr::sim([up, stay, down, boom]);
 
-            let cost_below = COST[level][(start - 1) as usize];
+            let cost_below = COST[(start - 1) as usize];
             let mut dist = PartialDistr::default();
             let mut dist_chance_time = PartialDistr::default();
             let mut keys: Vec<_> = joint.keys().collect();
