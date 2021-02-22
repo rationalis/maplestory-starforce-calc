@@ -3,14 +3,6 @@ use crate::consts::*;
 use rustc_hash::FxHashMap;
 use nanorand::{RNG, WyRand};
 
-// pub fn round_bucket(mesos: Meso) -> (BinId, Meso) {
-//     if mesos <= IDENT_BINS as i32 as f64 && g(mesos).fract() == 0.0 {
-//         return (g(mesos) as BinId, mesos);
-//     }
-//     let (idx, val) = round_bucket_impl(&BINS[IDENT_BINS..], mesos);
-//     (idx + IDENT_BINS as BinId, val)
-// }
-
 pub fn round_bucket_impl(bins: &[Meso], mesos: Meso) -> (BinId, Meso) {
     let c = mesos;
     let res = bins.binary_search(&c);
@@ -35,7 +27,7 @@ pub fn round_bucket_impl(bins: &[Meso], mesos: Meso) -> (BinId, Meso) {
 }
 
 #[repr(transparent)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Bin {
     bin_id: BinId,
 }
@@ -74,7 +66,7 @@ pub fn trajectory(start: Star, target: Star, rng: &mut WyRand,
     let mut star = start;
     while star != target {
         // add cost, update counters
-        cost += COST[star as usize] / COST[10];
+        cost += COST[star as usize];
         merge_or_insert(counters, cost, 1);
 
         // simulate one transition
@@ -91,15 +83,16 @@ pub fn trajectory(start: Star, target: Star, rng: &mut WyRand,
 }
 
 pub fn bins() -> Vec<Meso> {
-    const THRESH: f64 = 0.003;
+    const THRESH: f64 = 0.005;
     let mut counters = Default::default();
     let mut rng = WyRand::new_seed(0);
-    for _ in 0..100 {
-        for start in 10..=21 {
-            for target in start+1..=22 {
-                trajectory(start, target, &mut rng, &mut counters);
-            }
+    for start in 10..=21 {
+        for target in start+1..=22 {
+            trajectory(start, target, &mut rng, &mut counters);
         }
+    }
+    for _ in 0..100 {
+        trajectory(10, 22, &mut rng, &mut counters);
     }
     dbg!(counters.len());
     let mut list: Vec<_> = counters.into_iter().collect();
@@ -128,6 +121,7 @@ pub fn bins() -> Vec<Meso> {
         let mean = cs / f(cc);
         means.push(mean);
     }
-    return means;
+    dbg!(means.len());
+    means
 }
 

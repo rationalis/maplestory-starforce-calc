@@ -26,7 +26,6 @@ pub type Meso = F;
 pub type Star = u8;
 pub type BinId = u16;
 
-// pub const UNIT: Meso = 100_000;
 pub const STAR_LIMIT: Star = 22;
 pub const PROB_COUNT: usize = (STAR_LIMIT - 10) as usize;
 pub const NUM_LEVELS: usize = 4;
@@ -37,9 +36,6 @@ pub const MAX_DOWNS: usize = 64;
 
 pub const DIST_THRESHOLD: f64 = 1e-6;
 pub const IDENT_BINS: usize = 100;
-pub const BASE_BIN: f64 = 1.62069;
-pub const NUM_BINS: usize = 1300;
-pub const BIN_EXP: f64 = 1.01;
 
 pub const PROBS_F64: [[f64; 4]; PROB_COUNT] = [
     [0.5, 0.5, 0., 0.],
@@ -57,6 +53,12 @@ pub const PROBS_F64: [[f64; 4]; PROB_COUNT] = [
 ];
 
 lazy_static! {
+    pub static ref ADAPTIVE_BINS: Vec<Meso> = {
+        let mut bins_: Vec<Meso> = (0..IDENT_BINS+1).map(|n| f(n as i32)).collect();
+        bins_.extend_from_slice(bins().as_slice());
+        bins_
+    };
+    pub static ref NUM_BINS: usize = ADAPTIVE_BINS.len();
     pub static ref PROB_CUTOFF: F = f(1e-12);
     pub static ref ONE: F = f(1.0 - 0.5f64.powf(52.));
     pub static ref PROBS: [[F; 4]; PROB_COUNT] = {
@@ -68,48 +70,33 @@ lazy_static! {
         }
         probs
     };
-    pub static ref COST: [Meso; STAR_LIMIT as usize] = {
+    pub static ref COST_UN: [Meso; STAR_LIMIT as usize] = {
         let mut costs = [f(0); STAR_LIMIT as usize];
         for star in 10u8..22 {
             costs[star as usize] = cost_lv_indep(star);
         }
         costs
     };
-    pub static ref BINS: [Meso; NUM_BINS] = {
-        let mut bins = [f(0); NUM_BINS];
-        for i in 0..NUM_BINS {
-            if i <= IDENT_BINS {
-                bins[i] = f(i as i32);
-            } else {
-                let frac: f64 = BIN_EXP.powi(i as i32 - IDENT_BINS as i32 - 1);
-                bins[i] = f(BASE_BIN * frac);
-            }
+    pub static ref COST: [Meso; STAR_LIMIT as usize] = {
+        let mut costs = [f(0); STAR_LIMIT as usize];
+        for star in 10..22 {
+            costs[star] = COST_UN[star] / COST_UN[10];
         }
-        bins
+        costs
     };
-    pub static ref BINS_D: [Meso; NUM_BINS] = {
-        let mut bins_d = [f(0); NUM_BINS];
-        for i in 1..NUM_BINS {
-            bins_d[i] = (BINS[i] + BINS[i - 1]) / 2.0;
-        }
-        bins_d
+    pub static ref BINS: &'static [Meso] = {
+        ADAPTIVE_BINS.as_slice()
     };
-    pub static ref BIN_SUMS: Vec<[BinId; NUM_BINS]> = {
-        let mut bin_sums = Vec::with_capacity(NUM_BINS);
-        for i in 0..NUM_BINS {
-            let mut bin_sums_row = [0; NUM_BINS];
-            for j in 0..NUM_BINS {
-                bin_sums_row[j] = Bin::from_cost(BINS[i] + BINS[j]).raw();
+    pub static ref BIN_SUMS: Vec<BinId> = {
+        let mut bin_sums = Vec::with_capacity(NUM_BINS.pow(2));
+        for i in 0..*NUM_BINS {
+            for j in 0..*NUM_BINS {
+                bin_sums.push(Bin::from_cost(BINS[i] + BINS[j]).raw());
             }
-            bin_sums.push(bin_sums_row);
         }
         bin_sums
     };
 }
-
-// pub fn round(mesos: Meso, unit: i32) -> Meso {
-//     (mesos + (unit / 2)) / unit * unit
-// }
 
 pub fn cost_lv_indep(star: Star) -> Meso {
     let star_base: Meso = f((star + 1) as f64);
@@ -126,19 +113,10 @@ pub fn cost_lv_indep(star: Star) -> Meso {
     star_factor
 }
 
-pub fn cost_conv_lv(c: Meso, level: i32) -> u64 {
+pub fn cost_conv(c: Meso, level: i32) -> u64 {
     let level_factor = f(level.pow(3));
-    let cost = level_factor * c;
+    let cost = level_factor * c * COST_UN[10];
     g(cost) as u64
-    // let cost_approx = round(cost as i32, UNIT) / UNIT;
-    // println!(
-    //     "at level {} it costs {} mesos at {} stars, rounded to {}",
-    //     level,
-    //     pp(cost as u64),
-    //     star,
-    //     pp((round_bucket(cost_approx).1 * UNIT) as u64)
-    // );
-    // cost_approx
 }
 
 // pub fn cost(star: Star, level: i32) -> i32 {

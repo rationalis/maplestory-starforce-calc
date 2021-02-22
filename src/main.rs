@@ -6,6 +6,7 @@ use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
 
+use maplestory_calculator::consts::*;
 use maplestory_calculator::binning::*;
 use maplestory_calculator::calc::*;
 
@@ -18,8 +19,14 @@ use maplestory_calculator::calc::*;
 // TODO: write README
 
 fn main() {
-    let bins = bins();
-    dbg!(bins.len(), &bins[..20], &bins[bins.len()-20..]);
+    // let bins = bins();
+    // dbg!(bins.len(), &bins[..20], &bins[bins.len()-20..]);
+    let t = SystemTime::now();
+    lazy_static::initialize(&BINS);
+    if BINS.len() < 1100 {
+        dbg!(*BINS);
+    }
+    println!("Bin calculation in {} seconds", t.elapsed().unwrap().as_secs_f32());
     let t = SystemTime::now();
     calculate3(160, false);
     println!("Finished in {} seconds", t.elapsed().unwrap().as_secs_f32());

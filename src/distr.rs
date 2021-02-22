@@ -17,6 +17,7 @@ impl Distr {
         let mut res = Self { dist };
         res.truncate(None);
         res.dist.sort_unstable_by_key(|(c, _)| *c);
+
         res
     }
 
@@ -31,6 +32,18 @@ impl Distr {
             None => DIST_THRESHOLD,
         };
         self.dist.sort_unstable_by_key(|(_, p)| f(*p));
+        // if there is any dupe, dedupe
+        for i in 1..self.dist.len() {
+            if self.dist[i-1].0.raw() == self.dist[i].0.raw() {
+                let mut map = FxHashMap::default();
+                for &(c, p) in self.dist.iter() {
+                    merge_or_insert(&mut map, c, p);
+                }
+                self.dist = map.into_iter().collect();
+                self.dist.sort_unstable_by_key(|(_, p)| f(*p));
+                break;
+            }
+        }
         self.dist.reverse();
         let mut total_prob = 0.0;
         let mut last_key = 0;
@@ -116,11 +129,14 @@ impl Distr {
     }
 
     pub fn add(&self, other: &Self) -> Self {
-        let mut dist = [0.0; NUM_BINS];
+        // let mut dist = [0.0; NUM_BINS];
+        let mut dist = vec![0.0; ADAPTIVE_BINS.len()];
         for &(c, p) in self.dist.iter() {
-            let lookup = &BIN_SUMS[c.raw() as usize];
+            // let lookup = &BIN_SUMS[c.raw() as usize];
+            let row_offset = c.raw() as usize * ADAPTIVE_BINS.len();
             for &(c2, p2) in other.dist.iter() {
-                let i = lookup[c2.raw() as usize];
+                // let i = lookup[c2.raw() as usize];
+                let i = BIN_SUMS[row_offset + c2.raw() as usize];
                 dist[i as usize] += p * p2;
             }
         }
