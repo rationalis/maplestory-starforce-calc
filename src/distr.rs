@@ -161,71 +161,79 @@ impl Distr {
     }
 
     pub fn add(&self, other: &Self) -> Self {
+        // 3536 adds
+        // about 1s spent on sending data to GPU, 1s spent retrieving it again
+        static mut CTR: f32 = 0.0;
+
+        if self.dist.len() == 1 && other.dist.len() == 1 {
+            return Self {
+                dist: vec![(BIN_SUMS[self.dist[0].0 as usize][other.dist[0].0 as usize], 1.0)]
+            };
+        }
+
         use arrayfire::*;
         use arrayfire::MatProp::NONE;
         use std::time::SystemTime;
 
-        set_backend(Backend::OPENCL);
+        set_backend(Backend::CUDA);
 
         let now = SystemTime::now();
-        let mut dist1 = [0.0; NUM_BINS];
-        let mut dist2 = [0.0; NUM_BINS];
-        for &(c, p) in self.dist.iter() {
-            dist1[c as usize] += p;
+        let (dist1_bin, dist1_prob): (Vec<_>, Vec<f64>) = self.dist.iter().cloned().unzip();
+        let (dist2_bin, dist2_prob): (Vec<_>, Vec<f64>) = other.dist.iter().cloned().unzip();
+        let dist1_bin = vec_to_af(&dist1_bin);
+        let dist2_bin = vec_to_af(&dist2_bin);
+        let dist1_prob = vec_to_af(&dist1_prob);
+        let dist2_prob = transpose(&vec_to_af(&dist2_prob), false);
+        // dist1_bin.eval();
+        // dist2_bin.eval();
+        // dist1_prob.eval();
+        // dist2_prob.eval();
+        // dbg!(now.elapsed().unwrap().as_secs_f32());
+        unsafe {
+            CTR += now.elapsed().unwrap().as_secs_f32();
         }
-        for &(c, p) in other.dist.iter() {
-            dist2[c as usize] += p;
-        }
-        // dbg!(&dist1[..20], &dist2[..20]);
-        let dist1 = Array::new(&dist1, Dim4::new(&[NUM_BINS as u64, 1, 1, 1]));
-        let dist2 = Array::new(&dist2, Dim4::new(&[1, NUM_BINS as u64, 1, 1]));
-        // dbg!("AF Load Time", now.elapsed().unwrap().as_secs_f32());
-        // let mut dist1 = sparse_from_dense(&dist1, SparseFormat::CSR);
-        // let dist2 = sparse_from_dense(&dist2, SparseFormat::COO);
-        // transpose_inplace(&mut dist1, false);
-        let prod = matmul(&dist1, &dist2, NONE, NONE);
-        // prod = [N, N, 1, 1]
-        // bin_sums = [N^2, 1, 1, 1]
-        let keys = &BIN_SUMS_AF;
+        let prod = matmul(&dist1_prob, &dist2_prob, NONE, NONE);
+        let bin_sums_mat = moddims(&BIN_SUMS_AF,
+                                   dim4!(NUM_BINS as u64,
+                                         NUM_BINS as u64, 1, 1));
+        let out_bins = view!(bin_sums_mat[dist1_bin, dist2_bin]);
+        // print(&dist1_bin);
+        // print(&dist2_bin);
+        // print(&out_bins);
+        // dbg!(prod.dims(), out_bins.dims());
+        let keys = flat(&out_bins);
         let prod = flat(&prod);
-        keys.eval();
-        prod.eval();
+        let (keys, prod) = if prod.elements() > 1 {
+            let sorted = sort_by_key(&keys, &prod, 0, true);
+            // let sorted = (view!(BIN_SUMS_AF[PERMUTE.0]), view!(prod[PERMUTE.1]));
+            let reduced = sum_by_key(&sorted.0, &sorted.1, 0);
+            reduced
+        } else {
+            (keys, prod)
+        };
 
-        // dbg!(keys.dims(), prod.dims());
-        // dbg!(set_unique(keys, false).dims());
+        let now = SystemTime::now();
 
-        // let sorted = sort_by_key(keys, &prod, 0, true);
-        let sorted = (view!(BIN_SUMS_AF[PERMUTE.0]), view!(prod[PERMUTE.1]));
-        let reduced = sum_by_key(&sorted.0, &sorted.1, 0);
-        let dist_af = af_to_vec(&reduced.1);
-        // dbg!("ArrayFire", now.elapsed().unwrap().as_secs_f32());
-        // dbg!(reduced.0.dims(), reduced.1.dims());
+        let dist_af =
+            af_to_vec(&keys).into_iter()
+            .zip(af_to_vec(&prod))
+            .map(|(i, p)| (i as u16, p))
+            .collect();
+
+        unsafe {
+            CTR += now.elapsed().unwrap().as_secs_f32();
+            dbg!(CTR);
+        }
+
+        // dbg!(&dist_af);
         // panic!();
 
-        // let now = SystemTime::now();
-        // let mut dist = [0.0; NUM_BINS];
-        // for &(c, p) in self.dist.iter() {
-        //     let lookup = &BIN_SUMS[c as usize];
-        //     for &(c2, p2) in other.dist.iter() {
-        //         let i = lookup[c2 as usize];
-        //         dist[i as usize] += p * p2;
-        //     }
-        // }
-        // dbg!("Manual", now.elapsed().unwrap().as_secs_f32());
-        // if dist_af != dist {
-        //     for i in 0..NUM_BINS {
-        //         if (dist_af[i] - dist[i]).abs() > 1e-12 {
-        //             dbg!(i, dist_af[i], dist[i]);
-        //             panic!();
-        //         }
-        //     }
-        // }
-        let dist = dist_af
-            .iter()
-            .enumerate()
-            .filter_map(|(i, &p)| if p == 0.0 { None } else { Some((i as u16, p)) })
-            .collect();
-        Self::new(dist)
+        // let dist = dist_af
+        //     .iter()
+        //     .enumerate()
+        //     .filter_map(|(i, &p)| if p == 0.0 { None } else { Some((i as u16, p)) })
+        //     .collect();
+        Self::new(dist_af)
     }
 
     /// Calculate the mean and standard deviation.
