@@ -161,10 +161,6 @@ impl Distr {
     }
 
     pub fn add(&self, other: &Self) -> Self {
-        // 3536 adds
-        // about 1s spent on sending data to GPU, 1s spent retrieving it again
-        static mut CTR: f32 = 0.0;
-
         if self.dist.len() == 1 && other.dist.len() == 1 {
             return Self {
                 dist: vec![(BIN_SUMS[self.dist[0].0 as usize][other.dist[0].0 as usize], 1.0)]
@@ -184,23 +180,11 @@ impl Distr {
         let dist2_bin = vec_to_af(&dist2_bin);
         let dist1_prob = vec_to_af(&dist1_prob);
         let dist2_prob = transpose(&vec_to_af(&dist2_prob), false);
-        // dist1_bin.eval();
-        // dist2_bin.eval();
-        // dist1_prob.eval();
-        // dist2_prob.eval();
-        // dbg!(now.elapsed().unwrap().as_secs_f32());
-        unsafe {
-            CTR += now.elapsed().unwrap().as_secs_f32();
-        }
         let prod = matmul(&dist1_prob, &dist2_prob, NONE, NONE);
         let bin_sums_mat = moddims(&BIN_SUMS_AF,
                                    dim4!(NUM_BINS as u64,
                                          NUM_BINS as u64, 1, 1));
         let out_bins = view!(bin_sums_mat[dist1_bin, dist2_bin]);
-        // print(&dist1_bin);
-        // print(&dist2_bin);
-        // print(&out_bins);
-        // dbg!(prod.dims(), out_bins.dims());
         let keys = flat(&out_bins);
         let prod = flat(&prod);
         let (keys, prod) = if prod.elements() > 1 {
@@ -219,20 +203,6 @@ impl Distr {
             .zip(af_to_vec(&prod))
             .map(|(i, p)| (i as u16, p))
             .collect();
-
-        unsafe {
-            CTR += now.elapsed().unwrap().as_secs_f32();
-            dbg!(CTR);
-        }
-
-        // dbg!(&dist_af);
-        // panic!();
-
-        // let dist = dist_af
-        //     .iter()
-        //     .enumerate()
-        //     .filter_map(|(i, &p)| if p == 0.0 { None } else { Some((i as u16, p)) })
-        //     .collect();
         Self::new(dist_af)
     }
 

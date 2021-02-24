@@ -86,13 +86,6 @@ lazy_static! {
         }
         bins
     };
-    pub static ref BINS_D: [Meso; NUM_BINS] = {
-        let mut bins_d = [0; NUM_BINS];
-        for i in 1..NUM_BINS {
-            bins_d[i] = (BINS[i] + BINS[i - 1]) / 2;
-        }
-        bins_d
-    };
     pub static ref BIN_SUMS: Vec<[u16; NUM_BINS]> = {
         let mut bin_sums = Vec::with_capacity(NUM_BINS);
         for i in 0..NUM_BINS {
@@ -164,20 +157,3 @@ pub fn af_to_vec<T:arrayfire::HasAfEnum+Default+Clone>(array:&Array<T>) -> Vec<T
 pub fn vec_to_af<T:arrayfire::HasAfEnum+Default+Clone>(vec: &Vec<T>) -> Array<T> {
     Array::new(vec.as_slice(), Dim4::new(&[vec.len() as u64,1,1,1]))
 }
-
-// pub fn slice_to_sparse(slice: &[f64]) -> Array<f64> {
-//     let vals = Vec::new();
-//     let idxs = Vec::new();
-//     for (idx, &val) in slice.iter().enumerate() {
-//         if val > 0.0 {
-//             vals.push(val);
-//             idxs.push(idx);
-//         }
-//     }
-
-//     arrayfire::sparse(slice.len(), 1, vec_to_af(&vals), vec_to_af(&idxs))
-
-//     // let mut vec = vec![T::default();array.elements()];
-//     // array.host(&mut vec);
-//     // vec
-// }
