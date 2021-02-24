@@ -1,5 +1,6 @@
 use crate::distr::round_bucket;
 
+use arrayfire::{Array, Dim4};
 use lazy_static::*;
 use noisy_float::prelude::*;
 
@@ -103,6 +104,25 @@ lazy_static! {
         }
         bin_sums
     };
+    pub static ref BIN_SUMS_AF: Array<u32> = {
+        let mut bin_sums = Vec::with_capacity(NUM_BINS * NUM_BINS);
+        for i in 0..NUM_BINS {
+            for j in 0..NUM_BINS {
+                bin_sums.push(BIN_SUMS[i][j] as u32);
+            }
+        }
+        Array::new(bin_sums.as_slice(),
+                  Dim4::new(&[NUM_BINS as u64 * NUM_BINS as u64, 1, 1, 1]))
+    };
+    pub static ref COORDS: Array<u16> = {
+        use arrayfire::{iota, transpose, join, flat};
+        let a      = iota::<u16>(Dim4::new(&[NUM_BINS as u64, 1, 1, 1]),
+                                Dim4::new(&[1, NUM_BINS as u64, 1, 1]));
+        let b      = transpose(&a, false);
+        let coords = join(1, &flat(&a), &flat(&b));
+        coords
+        // print(&coords);
+    };
 }
 
 pub fn round(mesos: Meso, unit: i32) -> Meso {
@@ -129,4 +149,10 @@ pub fn cost(star: Star, level: i32) -> i32 {
         pp((round_bucket(cost_approx).1 * UNIT) as u64)
     );
     cost_approx
+}
+
+pub fn af_to_vec<T:arrayfire::HasAfEnum+Default+Clone>(array:&Array<T>) -> Vec<T> {
+    let mut vec = vec![T::default();array.elements()];
+    array.host(&mut vec);
+    vec
 }
