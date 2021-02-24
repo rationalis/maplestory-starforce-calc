@@ -114,13 +114,17 @@ lazy_static! {
         Array::new(bin_sums.as_slice(),
                   Dim4::new(&[NUM_BINS as u64 * NUM_BINS as u64, 1, 1, 1]))
     };
-    pub static ref COORDS: Array<u16> = {
-        use arrayfire::{iota, transpose, join, flat};
-        let a      = iota::<u16>(Dim4::new(&[NUM_BINS as u64, 1, 1, 1]),
-                                Dim4::new(&[1, NUM_BINS as u64, 1, 1]));
-        let b      = transpose(&a, false);
-        let coords = join(1, &flat(&a), &flat(&b));
-        coords
+    pub static ref PERMUTE: (Array<u32>, Array<u32>) = {
+        use arrayfire::*;
+        let range = iota::<u32>(dim4!((NUM_BINS * NUM_BINS) as u64, 1, 1, 1),
+                               dim4!(1, 1, 1, 1));
+        let sorted_range = sort_by_key(&BIN_SUMS_AF, &range, 0, true);
+        sorted_range
+        // let a      = iota::<u16>(Dim4::new(&[NUM_BINS as u64, 1, 1, 1]),
+        //                         Dim4::new(&[1, NUM_BINS as u64, 1, 1]));
+        // let b      = transpose(&a, false);
+        // let coords = join(1, &flat(&a), &flat(&b));
+        // coords
         // print(&coords);
     };
 }
@@ -156,3 +160,24 @@ pub fn af_to_vec<T:arrayfire::HasAfEnum+Default+Clone>(array:&Array<T>) -> Vec<T
     array.host(&mut vec);
     vec
 }
+
+pub fn vec_to_af<T:arrayfire::HasAfEnum+Default+Clone>(vec: &Vec<T>) -> Array<T> {
+    Array::new(vec.as_slice(), Dim4::new(&[vec.len() as u64,1,1,1]))
+}
+
+// pub fn slice_to_sparse(slice: &[f64]) -> Array<f64> {
+//     let vals = Vec::new();
+//     let idxs = Vec::new();
+//     for (idx, &val) in slice.iter().enumerate() {
+//         if val > 0.0 {
+//             vals.push(val);
+//             idxs.push(idx);
+//         }
+//     }
+
+//     arrayfire::sparse(slice.len(), 1, vec_to_af(&vals), vec_to_af(&idxs))
+
+//     // let mut vec = vec![T::default();array.elements()];
+//     // array.host(&mut vec);
+//     // vec
+// }

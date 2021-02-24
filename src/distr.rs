@@ -163,6 +163,11 @@ impl Distr {
     pub fn add(&self, other: &Self) -> Self {
         use arrayfire::*;
         use arrayfire::MatProp::NONE;
+        use std::time::SystemTime;
+
+        set_backend(Backend::OPENCL);
+
+        let now = SystemTime::now();
         let mut dist1 = [0.0; NUM_BINS];
         let mut dist2 = [0.0; NUM_BINS];
         for &(c, p) in self.dist.iter() {
@@ -174,6 +179,10 @@ impl Distr {
         // dbg!(&dist1[..20], &dist2[..20]);
         let dist1 = Array::new(&dist1, Dim4::new(&[NUM_BINS as u64, 1, 1, 1]));
         let dist2 = Array::new(&dist2, Dim4::new(&[1, NUM_BINS as u64, 1, 1]));
+        // dbg!("AF Load Time", now.elapsed().unwrap().as_secs_f32());
+        // let mut dist1 = sparse_from_dense(&dist1, SparseFormat::CSR);
+        // let dist2 = sparse_from_dense(&dist2, SparseFormat::COO);
+        // transpose_inplace(&mut dist1, false);
         let prod = matmul(&dist1, &dist2, NONE, NONE);
         // prod = [N, N, 1, 1]
         // bin_sums = [N^2, 1, 1, 1]
@@ -185,42 +194,33 @@ impl Distr {
         // dbg!(keys.dims(), prod.dims());
         // dbg!(set_unique(keys, false).dims());
 
-        let reduced = sum_by_key(keys, &prod, 0);
-        // let mut dist_af = [0.0; NUM_BINS];
-        let mut dist_af: Vec<f64> = vec![0.0; reduced.1.elements()];
+        // let sorted = sort_by_key(keys, &prod, 0, true);
+        let sorted = (view!(BIN_SUMS_AF[PERMUTE.0]), view!(prod[PERMUTE.1]));
+        let reduced = sum_by_key(&sorted.0, &sorted.1, 0);
+        let dist_af = af_to_vec(&reduced.1);
+        // dbg!("ArrayFire", now.elapsed().unwrap().as_secs_f32());
         // dbg!(reduced.0.dims(), reduced.1.dims());
-        reduced.1.host(dist_af.as_mut_slice());
+        // panic!();
 
-        let nz = locate(&reduced.1);
-        let mut nz_host = vec![0u32; nz.elements()];
-        nz.host(nz_host.as_mut_slice());
-
-        let mut dist_af_true = [0.0; NUM_BINS];
-        let (keys, prod) = (af_to_vec(&reduced.0), af_to_vec(&reduced.1));
-        for idx in nz_host {
-            let idx = idx as usize;
-            let key = keys[idx] as usize;
-            let val = prod[idx];
-            dist_af_true[key] += val;
-        }
-
-        let mut dist = [0.0; NUM_BINS];
-        for &(c, p) in self.dist.iter() {
-            let lookup = &BIN_SUMS[c as usize];
-            for &(c2, p2) in other.dist.iter() {
-                let i = lookup[c2 as usize];
-                dist[i as usize] += p * p2;
-            }
-        }
-        if dist_af_true != dist {
-            for i in 0..NUM_BINS {
-                if (dist_af_true[i] - dist[i]).abs() > 1e-12 {
-                    dbg!(i, dist_af_true[i], dist[i]);
-                    panic!();
-                }
-            }
-        }
-        let dist = dist
+        // let now = SystemTime::now();
+        // let mut dist = [0.0; NUM_BINS];
+        // for &(c, p) in self.dist.iter() {
+        //     let lookup = &BIN_SUMS[c as usize];
+        //     for &(c2, p2) in other.dist.iter() {
+        //         let i = lookup[c2 as usize];
+        //         dist[i as usize] += p * p2;
+        //     }
+        // }
+        // dbg!("Manual", now.elapsed().unwrap().as_secs_f32());
+        // if dist_af != dist {
+        //     for i in 0..NUM_BINS {
+        //         if (dist_af[i] - dist[i]).abs() > 1e-12 {
+        //             dbg!(i, dist_af[i], dist[i]);
+        //             panic!();
+        //         }
+        //     }
+        // }
+        let dist = dist_af
             .iter()
             .enumerate()
             .filter_map(|(i, &p)| if p == 0.0 { None } else { Some((i as u16, p)) })
