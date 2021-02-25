@@ -97,29 +97,29 @@ lazy_static! {
         }
         bin_sums
     };
-    pub static ref BIN_SUMS_AF: Array<u32> = {
+    pub static ref BIN_SUMS_AF: Array<u16> = {
         let mut bin_sums = Vec::with_capacity(NUM_BINS * NUM_BINS);
         for i in 0..NUM_BINS {
             for j in 0..NUM_BINS {
-                bin_sums.push(BIN_SUMS[i][j] as u32);
+                bin_sums.push(BIN_SUMS[i][j] as u16);
             }
         }
         Array::new(bin_sums.as_slice(),
                   Dim4::new(&[NUM_BINS as u64 * NUM_BINS as u64, 1, 1, 1]))
     };
-    pub static ref PERMUTE: (Array<u32>, Array<u32>) = {
-        use arrayfire::*;
-        let range = iota::<u32>(dim4!((NUM_BINS * NUM_BINS) as u64, 1, 1, 1),
-                               dim4!(1, 1, 1, 1));
-        let sorted_range = sort_by_key(&BIN_SUMS_AF, &range, 0, true);
-        sorted_range
-        // let a      = iota::<u16>(Dim4::new(&[NUM_BINS as u64, 1, 1, 1]),
-        //                         Dim4::new(&[1, NUM_BINS as u64, 1, 1]));
-        // let b      = transpose(&a, false);
-        // let coords = join(1, &flat(&a), &flat(&b));
-        // coords
-        // print(&coords);
-    };
+    // pub static ref PERMUTE: (Array<u32>, Array<u32>) = {
+    //     use arrayfire::*;
+    //     let range = iota::<u32>(dim4!((NUM_BINS * NUM_BINS) as u64, 1, 1, 1),
+    //                            dim4!(1, 1, 1, 1));
+    //     let sorted_range = sort_by_key(&BIN_SUMS_AF, &range, 0, true);
+    //     sorted_range
+    //     // let a      = iota::<u16>(Dim4::new(&[NUM_BINS as u64, 1, 1, 1]),
+    //     //                         Dim4::new(&[1, NUM_BINS as u64, 1, 1]));
+    //     // let b      = transpose(&a, false);
+    //     // let coords = join(1, &flat(&a), &flat(&b));
+    //     // coords
+    //     // print(&coords);
+    // };
 }
 
 pub fn round(mesos: Meso, unit: i32) -> Meso {

@@ -1,3 +1,4 @@
+#![feature(destructuring_assignment)]
 #![feature(option_result_unwrap_unchecked)]
 
 pub mod calc;

@@ -5,6 +5,9 @@ use std::cmp::Ordering;
 use std::hash::Hash;
 use std::ops::{Add, AddAssign, Mul, MulAssign};
 
+use arrayfire::*;
+use arrayfire::MatProp::NONE;
+
 use rustc_hash::FxHashMap;
 
 pub fn merge_or_insert<K, V, D>(dist: &mut FxHashMap<K, V>, key: K, p: D)
@@ -52,16 +55,17 @@ pub fn unbin(u: u16) -> Meso {
     BINS[u as usize]
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Distr {
-    pub dist: Vec<(u16, f64)>,
+    pub costs: Array<u32>,
+    pub probs: Array<f64>,
 }
 
 impl Distr {
-    fn new(dist: Vec<(u16, f64)>) -> Self {
-        let mut res = Self { dist };
+    fn new(costs: Array<u32>, probs: Array<f64>) -> Self {
+        let mut res = Self { costs, probs };
         res.truncate(None);
-        res.dist.sort_unstable_by_key(|(c, _)| *c);
+        (res.costs, res.probs) = sort_by_key(&res.costs, &res.probs, 0, true);
         res
     }
 
@@ -75,8 +79,9 @@ impl Distr {
             Some(p) => p,
             None => DIST_THRESHOLD,
         };
-        self.dist.sort_unstable_by_key(|(_, p)| f(*p));
-        self.dist.reverse();
+        (self.probs, self.costs) = sort_by_key(&self.probs, &self.costs, 0, false);
+        // self.dist.sort_unstable_by_key(|(_, p)| f(*p));
+        // self.dist.reverse();
         let mut total_prob = 0.0;
         let mut last_key = 0;
         for i in 0..self.dist.len() {
@@ -167,13 +172,6 @@ impl Distr {
             };
         }
 
-        use arrayfire::*;
-        use arrayfire::MatProp::NONE;
-        use std::time::SystemTime;
-
-        set_backend(Backend::CUDA);
-
-        let now = SystemTime::now();
         let (dist1_bin, dist1_prob): (Vec<_>, Vec<f64>) = self.dist.iter().cloned().unzip();
         let (dist2_bin, dist2_prob): (Vec<_>, Vec<f64>) = other.dist.iter().cloned().unzip();
         let dist1_bin = vec_to_af(&dist1_bin);
@@ -190,13 +188,12 @@ impl Distr {
         let (keys, prod) = if prod.elements() > 1 {
             let sorted = sort_by_key(&keys, &prod, 0, true);
             // let sorted = (view!(BIN_SUMS_AF[PERMUTE.0]), view!(prod[PERMUTE.1]));
-            let reduced = sum_by_key(&sorted.0, &sorted.1, 0);
+            let sorted_keys: Array<u32> = sorted.0.cast();
+            let reduced = sum_by_key(&sorted_keys, &sorted.1, 0);
             reduced
         } else {
-            (keys, prod)
+            (keys.cast(), prod)
         };
-
-        let now = SystemTime::now();
 
         let dist_af =
             af_to_vec(&keys).into_iter()

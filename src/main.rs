@@ -17,6 +17,8 @@ use maplestory_calculator::calc::*;
 // TODO: write README
 
 fn main() {
+    arrayfire::set_backend(arrayfire::Backend::CUDA);
+
     let t = SystemTime::now();
     calculate3(160, false);
     println!("Finished in {} seconds", t.elapsed().unwrap().as_secs_f32());
