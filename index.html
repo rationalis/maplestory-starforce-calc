@@ -1,8 +1,8 @@
 <html>
-    <script src ="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.4.0/dist/sql-wasm.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.4.0/dist/sql-wasm.js" integrity="sha512-8oJoeo0ykAzuJzQFJDnwz9t4Rr+1xue7LFX+kr0NJMpOHH9QJPC563If+sakheUe3QbLwTTgXIGPC6YZTwp7Iw==" crossorigin="anonymous"></script>
     <script>
      const sqlPromise = initSqlJs({
-         locateFile: filename => 'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.4.0/dist/sql-wasm.js'
+         locateFile: () => 'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.4.0/dist/sql-wasm.js'
      });
      const dataPromise = fetch("output.db").then(res => res.arrayBuffer());
      Promise.all([sqlPromise, dataPromise]).then((SQL, buf) => {
