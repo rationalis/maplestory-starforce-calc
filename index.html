@@ -7,16 +7,10 @@
     <script src="https://cdn.jsdelivr.net/npm/vega-embed"></script>
     <script src="https://cdn.jsdelivr.net/npm/vega-lite-api"></script>
 
-    <script type="module">
-     /* import * as vega from 'https://cdn.skypack.dev/vega';
-      * import * as vegaLite from 'https://cdn.skypack.dev/vega-lite';
-      * import * as vegaEmbed from 'https://cdn.skypack.dev/vega-embed';
-      * import * as vl from 'https://cdn.skypack.dev/vega-lite-api';
-      * import * as vegaTooltip from 'https://cdn.skypack.dev/vega-tooltip'; */
-
-     console.log(vega);
-     console.log(vl);
-     console.log(vegaEmbed);
+    <script>
+     /* console.log(vega);
+      * console.log(vl);
+      * console.log(vegaEmbed); */
      var config = {
          locateFile: filename => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.4.0/dist/${filename}`
      }
@@ -24,7 +18,7 @@
          const dataPromise = fetch("https://rationalis.github.io/maplestory-starforce-calc/output.db").then(res => res.arrayBuffer());
          dataPromise.then((buf) => {
              const db = new SQL.Database(new Uint8Array(buf));
-             var stmt = db.prepare("SELECT * FROM data WHERE start=10 AND target=22");
+             var stmt = db.prepare("SELECT * FROM data");
              stmt.getAsObject({$start:1, $end:1}); // {col1:1, col2:111}
 
              var data = [];
@@ -42,12 +36,27 @@
                           .width('container')
                           .height('container')
                           .data(data)
+                          .params(
+                              [{name: "start", value: 10,
+                                bind: {"input": "range", "min": 10, "max": 21, "step": 1}},
+                               {name: "target", value: 22,
+                                bind: {"input": "range", "min": 11, "max": 22, "step": 1}},
+                               {name: "numbins", value: 200,
+                                bind: {"input": "range", "min": 100, "max": 1000, "step": 1}}]
+                          )
+                          .transform(
+                              vl.filter("datum.start == start"),
+                              vl.filter("datum.target == target"),
+                          )
                           .encode(
-                              vl.x().fieldQ("cost"),
-                              vl.y().fieldQ("prob"),
+                              vl.x().fieldQ("cost").bin({maxbins: 200}).title("Meso Cost"),
+                              vl.y().fieldQ("prob").aggregate("sum").title("Probability"),
                           )
                           .toObject();
-             spec.mark.tooltip = {content: 'data'};
+             spec.encoding.tooltip = [
+                 {"field": "cost", "type": "quantitative", "bin": {"maxbins": 200}, "format": ".2s"},
+                 {"field": "prob", "type": "quantitative", "aggregate": "sum", "format": ".4%", "title": "Probability"},
+             ];
              console.log(spec);
              vegaEmbed('#view', spec, {renderer: "canvas"});
          }).catch(err => {console.log(err);});
@@ -55,6 +64,8 @@
     </script>
     <body>
         <p id="test"></p>
+        <div id="text"> Note: Suffixes indicating magnitude are actually SI prefixes, i.e. "G" (giga) is used to denote billions.</div>
         <div id="view" style="width:50%;height:50%;"></div>
+        <p>
     </body>
 </html>
