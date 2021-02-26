@@ -28,7 +28,7 @@
                  }
                  initSqlJs(config).then(function (SQL) {
                      const dataPromise = fetch("output.db").then(res => res.arrayBuffer());
-                     dataPromise.then((SQL, buf) => {
+                     dataPromise.then((buf) => {
                          const db = new SQL.Database(new Uint8Array(buf));
                          var stmt = db.prepare("SELECT * FROM data WHERE start=10 AND target=11");
                          stmt.getAsObject({$start:1, $end:1}); // {col1:1, col2:111}
@@ -41,7 +41,7 @@
                              out += JSON.stringify(row);
                          }
                          document.getElementById("demo").innerHTML = out;
-                     }).catch(err => {});
+                     }).catch(err => {console.log(err);});
                  });
              },
              function error(err) {
