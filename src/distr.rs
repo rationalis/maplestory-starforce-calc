@@ -292,6 +292,14 @@ impl Add<&PartialDistr> for Distr {
     }
 }
 
+impl Into<Vec<(u64, f64)>> for Distr {
+    fn into(self) -> Vec<(u64, f64)> {
+        self.dist.iter()
+            .map(|&(c, p)| (unbin(c) as u64 * UNIT as u64, p))
+            .collect()
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct PartialDistr {
     pub total: F,

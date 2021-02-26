@@ -3,7 +3,7 @@ use crate::distr::*;
 
 use rustc_hash::FxHashMap;
 
-pub fn calculate3(level: i32, safeguard: bool) {
+pub fn calculate3(level: i32, safeguard: bool) -> Vec<((Star, Star), Vec<(u64, f64)>)> {
     let level = LEVELS.iter().position(|&e| e == level).unwrap();
     lazy_static::initialize(&BIN_SUMS);
     lazy_static::initialize(&COST);
@@ -38,8 +38,8 @@ pub fn calculate3(level: i32, safeguard: bool) {
     for target in 11..STAR_LIMIT + 1 {
         for start in (10..target).rev() {
             if start != target - 1 {
-                let dist1 = table.get(&(start, start + 1)).unwrap();
-                let dist2 = table.get(&(start + 1, target)).unwrap();
+                let dist1 = &table[&(start, start + 1)];
+                let dist2 = &table[&(start + 1, target)];
                 let dist = dist1.add(dist2);
                 update(&mut table, start, target, dist);
                 continue;
@@ -72,7 +72,7 @@ pub fn calculate3(level: i32, safeguard: bool) {
             booms_dists.push(Distr::zero());
             let base_downs_dist = dist_below(&table, &table_chance_time, start);
             let base_booms_dist = if boom > 0.0 {
-                table.get(&(12, start)).unwrap().clone()
+                table[&(12, start)].clone()
             } else {
                 Distr::zero()
             };
@@ -115,4 +115,7 @@ pub fn calculate3(level: i32, safeguard: bool) {
             update(&mut table, start, target, dist.into());
         }
     }
+    table.into_iter()
+        .map(|(k, v)| (k, v.into()))
+        .collect()
 }
