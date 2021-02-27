@@ -86,7 +86,7 @@
                                .encode(
                                    vl.x().fieldQ("value")
                                    .scale({domain: {param: 'grid'}}),
-                                   vl.y().fieldQ("density"),
+                                   vl.y().fieldQ("density").title("Cumulative Probability"),
                                    /* vl.tooltip([
                                     *     //{field: "cost", type: "quantitative", bin: {maxbins: 200}, format: ".3s"},
                                     *     {field: "cdf", type: "quantitative", format: ".2%"},
@@ -108,7 +108,7 @@
              const layers = vl
                  .vconcat(miniplot,
                           vl.layer(histo,
-                                   density
+                                   density,
                           )
                             .resolve({scale: {y: "independent"}}))
                  .data(data)
@@ -121,7 +121,7 @@
                  )
                  .transform(
                      vl.filter("datum.start == start"),
-                     vl.filter("datum.target == target"),
+                     vl.filter("datum.target == max(target, start+1)"),
                  )
 
              vegaEmbed('#view', layers.toObject(), {renderer: "svg"});
@@ -133,7 +133,9 @@
         <div id="text">
             Note: Suffixes indicating magnitude are actually SI prefixes, i.e. "G" (giga) is used to denote billions.<p>
 
-            Make selections on the miniplot to adjust the interval on the main plot.
+            Make selections on the miniplot to adjust the interval on the main plot.<p>
+
+            Target stars are clamped to start+1.
         </div>
         <div id="view" style="width:60%;height:60%;"></div>
         <p>
