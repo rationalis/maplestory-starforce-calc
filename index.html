@@ -25,23 +25,43 @@
                  data.push(row);
              }
 
+             const miniplot = vl.markBar()
+                                .autosize('fit')
+                                .width('container')
+                                .height(50)
+             //.transform(vl.density().density("cost").cumulative(true))
+                                .encode(
+                                    vl.x().fieldQ("cost").title("Meso Cost").scale({domainMin: 0}),
+                                    vl.y().fieldQ("prob").title("Probability"),
+                                )
+                                .params([
+                                    {"name": "grid",
+                                     "select": {type: "interval",
+                                                "encodings": ["x"],}
+                                }])
+
              const plot = vl.markBar()
                             .autosize('fit')
                             .width('container')
                             .height('container')
-                            //.transform(vl.density().density("cost").cumulative(true))
+             //.transform(vl.density().density("cost").cumulative(true))
                             .encode(
                                 vl.x().fieldQ("cost")
+                                  .scale({domain: {param: 'grid'}})
                                   .bin(
-                                      {maxbins: 200,
-                                       nice:false,})
+                                      {maxbins: 100,
+                                       nice:false,
+                                       extent: {param: "grid"}})
                                   .title("Meso Cost"),
                                 vl.y().fieldQ("prob").aggregate("sum").title("Probability"),
                                 vl.tooltip([
                                     {field: "cost", type: "quantitative",
-                                     bin: {maxbins: 200, nice:false},
+                                     bin: {
+                                         maxbins: 100,
+                                         nice:false,
+                                         extent: {param: "grid"}},
                                      format: ".3s", "title": "Cost"},
-                                    {field: "prob", type: "quantitative", aggregate: "sum", format: ".3%", "title": "Probability"},
+                                    {field: "prob", type: "quantitative", aggregate: "sum", format: ".4%", "title": "Probability"},
                                 ]),
                             )
              ;
@@ -55,12 +75,6 @@
                                  'nearest': true,
                                  'resolve': 'union'}},
 
-                     /* {"name": "grid",
-                      *  "select": "interval",
-                      *  "encodings": ["x"],
-                      *  "bind": "scales",
-                      *  "throttle": 500,
-                      * } */
                  ])
              ;
 
@@ -70,7 +84,8 @@
                                .height('container')
                                .transform(vl.density().density("cost").cumulative(true))
                                .encode(
-                                   vl.x().fieldQ("value"),
+                                   vl.x().fieldQ("value")
+                                   .scale({domain: {param: 'grid'}}),
                                    vl.y().fieldQ("density"),
                                    /* vl.tooltip([
                                     *     //{field: "cost", type: "quantitative", bin: {maxbins: 200}, format: ".3s"},
@@ -85,41 +100,29 @@
                              .nearest(true)   // select data point nearest the cursor
                              .empty('none');  // empty selection includes no data points
 
-             const density2 = vl.layer(density,
-                                       density.markCircle()
-                                              //.select(hover) // use as anchor points for selection
-                                              //.encode(vl.opacity().if(hover, vl.value(1)).value(0)),
-                                              .transform(vl.filter({param: "brush"}))
-             )
-                                       // add white stroked text to provide a legible background for labels
-                                       //base.markText(label, white).encode(vl.text().fieldQ('price')),
-                                       // add text labels for stock prices
-                                       //base.markText(label).encode(vl.text().fieldQ('price'))
 
              const histo = vl.layer(plot_brush,
                                     plot.transform(vl.filter({param: "brush"})))
 
 
              const layers = vl
-                 .layer(
-                     histo,
-                     density2,
-                 )
+                 .vconcat(miniplot,
+                          vl.layer(histo,
+                                   density
+                          )
+                            .resolve({scale: {y: "independent"}}))
                  .data(data)
                  .params(
                      [{name: "start", value: 10,
                        bind: {"input": "range", "min": 10, "max": 21, "step": 1}},
                       {name: "target", value: 22,
                        bind: {"input": "range", "min": 11, "max": 22, "step": 1}},
-                      {name: "numbins", value: 200,
-                       bind: {"input": "range", "min": 100, "max": 1000, "step": 1}},
                      ]
                  )
                  .transform(
                      vl.filter("datum.start == start"),
                      vl.filter("datum.target == target"),
                  )
-                 .resolve({scale: {y: "independent"}})
 
              vegaEmbed('#view', layers.toObject(), {renderer: "svg"});
          }).catch(err => {console.log(err);});
@@ -127,8 +130,12 @@
     </script>
     <body>
         <p id="test"></p>
-        <div id="text"> Note: Suffixes indicating magnitude are actually SI prefixes, i.e. "G" (giga) is used to denote billions.</div>
-        <div id="view" style="width:75%;height:75%;"></div>
+        <div id="text">
+            Note: Suffixes indicating magnitude are actually SI prefixes, i.e. "G" (giga) is used to denote billions.<p>
+
+            Make selections on the miniplot to adjust the interval on the main plot.
+        </div>
+        <div id="view" style="width:60%;height:60%;"></div>
         <p>
     </body>
 </html>
