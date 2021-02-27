@@ -6,11 +6,6 @@
     <script src="https://cdn.jsdelivr.net/npm/vega-lite"></script>
     <script src="https://cdn.jsdelivr.net/npm/vega-embed"></script>
     <script src="https://cdn.jsdelivr.net/npm/vega-lite-api"></script>
-    <!-- <script src="https://cdn.jsdelivr.net/npm/vega-tooltip"></script>
-
-         <script src="https://unpkg.com/deck.gl@~6.4/deckgl.min.js"></script>
-         <script src="https://unpkg.com/@msrvida/vega-deck.gl@^2/dist/umd/vega-deck.gl.js"></script> -->
-
     <script>
      var config = {
          locateFile: filename => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.4.0/dist/${filename}`
@@ -30,34 +25,85 @@
                  data.push(row);
              }
 
-             const index = vl.selectSingle()
-                             .on('mousemove')
-                             .resolve('intersect');
-
              const plot = vl.markBar()
                             .autosize('fit')
                             .width('container')
                             .height('container')
+                            //.transform(vl.density().density("cost").cumulative(true))
                             .encode(
-                                vl.x().fieldQ("cost").bin({maxbins: 100}).title("Meso Cost"),
+                                vl.x().fieldQ("cost")
+                                  .bin(
+                                      {maxbins: 200,
+                                       nice:false,})
+                                  .title("Meso Cost"),
                                 vl.y().fieldQ("prob").aggregate("sum").title("Probability"),
                                 vl.tooltip([
-                                    {field: "cost", type: "quantitative", bin: {maxbins: 100}, format: ".3s"},
-                                    {field: "prob", type: "quantitative", aggregate: "sum", format: ".2%", "title": "Probability"},
+                                    {field: "cost", type: "quantitative",
+                                     bin: {maxbins: 200, nice:false},
+                                     format: ".3s", "title": "Cost"},
+                                    {field: "prob", type: "quantitative", aggregate: "sum", format: ".3%", "title": "Probability"},
                                 ]),
                             )
+             ;
 
-             const plot_brush = plot.encode(vl.opacity(vl.value(0.5)))
-                                    .params([{
-                                        "name": "brush",
-                                        "select": {"type": "point", "encodings": ["x"], "on": "mousemove", 'nearest': true, 'resolve': 'union'},
-                                    }])
+             const plot_brush = plot
+                 .encode(vl.opacity(vl.value(0.5)))
+                 .params([
+                     {"name": "brush",
+                      "select": {"type": "point", "encodings": ["x"],
+                                 "on": {"type": "mousemove", "throttle": "50"},
+                                 'nearest': true,
+                                 'resolve': 'union'}},
+
+                     /* {"name": "grid",
+                      *  "select": "interval",
+                      *  "encodings": ["x"],
+                      *  "bind": "scales",
+                      *  "throttle": 500,
+                      * } */
+                 ])
+             ;
+
+             const density = vl.markLine()
+                               .autosize('fit')
+                               .width('container')
+                               .height('container')
+                               .transform(vl.density().density("cost").cumulative(true))
+                               .encode(
+                                   vl.x().fieldQ("value"),
+                                   vl.y().fieldQ("density"),
+                                   /* vl.tooltip([
+                                    *     //{field: "cost", type: "quantitative", bin: {maxbins: 200}, format: ".3s"},
+                                    *     {field: "cdf", type: "quantitative", format: ".2%"},
+                                    * ]), */
+                                   vl.color(vl.value("red"))
+                               )
+
+             const hover = vl.selectSingle()
+                             .encodings('x')  // limit selection to x-axis value
+                             .on('mouseover') // select on mouseover events
+                             .nearest(true)   // select data point nearest the cursor
+                             .empty('none');  // empty selection includes no data points
+
+             const density2 = vl.layer(density,
+                                       density.markCircle()
+                                              //.select(hover) // use as anchor points for selection
+                                              //.encode(vl.opacity().if(hover, vl.value(1)).value(0)),
+                                              .transform(vl.filter({param: "brush"}))
+             )
+                                       // add white stroked text to provide a legible background for labels
+                                       //base.markText(label, white).encode(vl.text().fieldQ('price')),
+                                       // add text labels for stock prices
+                                       //base.markText(label).encode(vl.text().fieldQ('price'))
+
+             const histo = vl.layer(plot_brush,
+                                    plot.transform(vl.filter({param: "brush"})))
+
 
              const layers = vl
                  .layer(
-                     plot_brush,
-                     plot.transform(vl.filter({param: "brush"})),
-                     //plot.markLine().encode(vl.color(vl.value("red"))),
+                     histo,
+                     density2,
                  )
                  .data(data)
                  .params(
@@ -73,29 +119,9 @@
                      vl.filter("datum.start == start"),
                      vl.filter("datum.target == target"),
                  )
-
-             //var runtime = vega.parse(vegaLite.compile(layers.toObject()).spec);
-
-             /* var view = new vega.View(runtime)
-              *                    .logLevel(vega.Warn) // set view logging level
-              *                    .renderer('canvas')     // set render type (defaults to 'canvas')
-              *                    .initialize(document.querySelector('#view')) // set parent DOM element
-              *                    .tooltip(new vegaTooltip.Handler().call)
-              *                    .hover();            // enable hover event processing, *only call once*!
-
-              * view.runAsync(); // evaluate and render the view */
+                 .resolve({scale: {y: "independent"}})
 
              vegaEmbed('#view', layers.toObject(), {renderer: "svg"});
-
-             /* VegaDeckGl.use(vega, deck, deck, luma);
-              * var view = new VegaDeckGl.ViewGl(runtime)
-              *                    .logLevel(vega.Warn) // set view logging level
-              *                    .renderer('canvas')     // set render type (defaults to 'canvas')
-              *                    .initialize(document.querySelector('#view')) // set parent DOM element
-              *                    .tooltip(new vegaTooltip.Handler().call)
-              *                    .hover();            // enable hover event processing, *only call once*!
-
-              * view.run(); // evaluate and render the view */
          }).catch(err => {console.log(err);});
      });
     </script>
