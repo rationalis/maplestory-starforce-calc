@@ -8,9 +8,6 @@
     <script src="https://cdn.jsdelivr.net/npm/vega-lite-api"></script>
 
     <script>
-     /* console.log(vega);
-      * console.log(vl);
-      * console.log(vegaEmbed); */
      var config = {
          locateFile: filename => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.4.0/dist/${filename}`
      }
@@ -29,16 +26,7 @@
                  data.push(row);
                  // out += JSON.stringify(row);
              }
-             console.log(data);
              /*              document.getElementById("test").innerHTML = JSON.stringify(data); */
-
-             /* {
-              *     "mark": "line",
-              *     "encoding": {
-              *         "y": {"field": "price", "type": "quantitative"},
-              *         "color": {"field": "symbol", "type": "nominal"}
-              *     }
-              * } */
 
              var spec = vl.markBar()
                           .autosize('fit')
@@ -68,13 +56,12 @@
                           .encode(
                               vl.x().fieldQ("cost").bin({maxbins: 200}).title("Meso Cost"),
                               vl.y().fieldQ("prob").aggregate("sum").title("Probability"),
+                              vl.tooltip([
+                                  {field: "cost", type: "quantitative", bin: {maxbins: 200}, format: ".2s"},
+                                  {field: "prob", type: "quantitative", aggregate: "sum", format: ".4%", "title": "Probability"},
+                              ]),
                           )
                           .toObject();
-             spec.encoding.tooltip = [
-                 {"field": "cost", "type": "quantitative", "bin": {"maxbins": 200}, "format": ".2s"},
-                 {"field": "prob", "type": "quantitative", "aggregate": "sum", "format": ".4%", "title": "Probability"},
-             ];
-             console.log(spec);
              vegaEmbed('#view', spec, {renderer: "canvas"});
          }).catch(err => {console.log(err);});
      });
