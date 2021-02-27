@@ -6,6 +6,10 @@
     <script src="https://cdn.jsdelivr.net/npm/vega-lite"></script>
     <script src="https://cdn.jsdelivr.net/npm/vega-embed"></script>
     <script src="https://cdn.jsdelivr.net/npm/vega-lite-api"></script>
+    <!-- <script src="https://cdn.jsdelivr.net/npm/vega-tooltip"></script>
+
+         <script src="https://unpkg.com/deck.gl@~6.4/deckgl.min.js"></script>
+         <script src="https://unpkg.com/@msrvida/vega-deck.gl@^2/dist/umd/vega-deck.gl.js"></script> -->
 
     <script>
      var config = {
@@ -27,24 +31,33 @@
              }
 
              const index = vl.selectSingle()
-                             .on('mousemove');
+                             .on('mousemove')
+                             .resolve('intersect');
 
              const plot = vl.markBar()
                             .autosize('fit')
                             .width('container')
                             .height('container')
                             .encode(
-                                vl.x().fieldQ("cost").bin({maxbins: 200}).title("Meso Cost"),
+                                vl.x().fieldQ("cost").bin({maxbins: 100}).title("Meso Cost"),
                                 vl.y().fieldQ("prob").aggregate("sum").title("Probability"),
                                 vl.tooltip([
-                                    {field: "cost", type: "quantitative", bin: {maxbins: 200}, format: ".3s"},
+                                    {field: "cost", type: "quantitative", bin: {maxbins: 100}, format: ".3s"},
                                     {field: "prob", type: "quantitative", aggregate: "sum", format: ".2%", "title": "Probability"},
                                 ]),
                             )
 
+             const plot_brush = plot.encode(vl.opacity(vl.value(0.5)))
+                                    .params([{
+                                        "name": "brush",
+                                        "select": {"type": "point", "encodings": ["x"], "on": "mousemove", 'nearest': true, 'resolve': 'union'},
+                                    }])
+
              const layers = vl
                  .layer(
-                     plot.select(index).encode(vl.fillOpacity().if(index, vl.value(1)).value(0.5))
+                     plot_brush,
+                     plot.transform(vl.filter({param: "brush"})),
+                     //plot.markLine().encode(vl.color(vl.value("red"))),
                  )
                  .data(data)
                  .params(
@@ -61,7 +74,28 @@
                      vl.filter("datum.target == target"),
                  )
 
+             //var runtime = vega.parse(vegaLite.compile(layers.toObject()).spec);
+
+             /* var view = new vega.View(runtime)
+              *                    .logLevel(vega.Warn) // set view logging level
+              *                    .renderer('canvas')     // set render type (defaults to 'canvas')
+              *                    .initialize(document.querySelector('#view')) // set parent DOM element
+              *                    .tooltip(new vegaTooltip.Handler().call)
+              *                    .hover();            // enable hover event processing, *only call once*!
+
+              * view.runAsync(); // evaluate and render the view */
+
              vegaEmbed('#view', layers.toObject(), {renderer: "svg"});
+
+             /* VegaDeckGl.use(vega, deck, deck, luma);
+              * var view = new VegaDeckGl.ViewGl(runtime)
+              *                    .logLevel(vega.Warn) // set view logging level
+              *                    .renderer('canvas')     // set render type (defaults to 'canvas')
+              *                    .initialize(document.querySelector('#view')) // set parent DOM element
+              *                    .tooltip(new vegaTooltip.Handler().call)
+              *                    .hover();            // enable hover event processing, *only call once*!
+
+              * view.run(); // evaluate and render the view */
          }).catch(err => {console.log(err);});
      });
     </script>
