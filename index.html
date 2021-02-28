@@ -82,15 +82,16 @@
                                .autosize('fit')
                                .width('container')
                                .height('container')
-                               .transform(vl.density().density("cost").cumulative(true))
+                               .transform(vl.window().sort("cost")
+                                            .window(
+                                                {op: 'sum',
+                                                 field: 'prob',
+                                                 as: 'density'}
+                               ))
                                .encode(
-                                   vl.x().fieldQ("value")
+                                   vl.x().fieldQ("cost")
                                    .scale({domain: {param: 'grid'}}),
                                    vl.y().fieldQ("density").title("Cumulative Probability"),
-                                   /* vl.tooltip([
-                                    *     //{field: "cost", type: "quantitative", bin: {maxbins: 200}, format: ".3s"},
-                                    *     {field: "cdf", type: "quantitative", format: ".2%"},
-                                    * ]), */
                                    vl.color(vl.value("red"))
                                )
 
