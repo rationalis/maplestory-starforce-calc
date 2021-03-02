@@ -29,7 +29,6 @@
                                 .autosize('fit')
                                 .width('container')
                                 .height(50)
-             //.transform(vl.density().density("cost").cumulative(true))
                                 .encode(
                                     vl.x().fieldQ("cost").title("Meso Cost").scale({domainMin: 0}),
                                     vl.y().fieldQ("prob").title("Probability"),
@@ -44,7 +43,6 @@
                             .autosize('fit')
                             .width('container')
                             .height('container')
-             //.transform(vl.density().density("cost").cumulative(true))
                             .encode(
                                 vl.x().fieldQ("cost")
                                   .scale({domain: {param: 'grid'}})
@@ -94,13 +92,6 @@
                                    vl.y().fieldQ("density").title("Cumulative Probability"),
                                    vl.color(vl.value("red"))
                                )
-
-             const hover = vl.selectSingle()
-                             .encodings('x')  // limit selection to x-axis value
-                             .on('mouseover') // select on mouseover events
-                             .nearest(true)   // select data point nearest the cursor
-                             .empty('none');  // empty selection includes no data points
-
 
              const histo = vl.layer(plot_brush,
                                     plot.transform(vl.filter({param: "brush"})))
