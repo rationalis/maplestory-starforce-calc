@@ -88,8 +88,10 @@
                                ))
                                .encode(
                                    vl.x().fieldQ("cost")
-                                   .scale({domain: {param: 'grid'}}),
-                                   vl.y().fieldQ("density").title("Cumulative Probability"),
+                                     .scale({domain: {param: 'grid'}})
+                                     .axis({grid: {grid: true}}),
+                                   vl.y().fieldQ("density").title("Cumulative Probability")
+                                     .axis({grid: {grid: true}}),
                                    vl.color(vl.value("red"))
                                )
 
