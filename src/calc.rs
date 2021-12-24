@@ -1,9 +1,35 @@
 use crate::consts::*;
 use crate::distr::*;
 
+use std::thread;
+use std::sync::mpsc;
+
 use rustc_hash::FxHashMap;
 
 pub fn calculate3(level: i32, safeguard: bool) -> Vec<((Star, Star), Vec<(u64, f64)>)> {
+    let (to_reporter, reporter_receiver) = mpsc::channel::<(Star, Star, Distr)>();
+    let _reporter = thread::spawn(move || {
+        while let Ok((start, target, dist)) = reporter_receiver.recv() {
+            let s = dist.stats();
+            println!(
+                "{} -> {} dist size: {} mean: {} stddev: {}",
+                start,
+                target,
+                dist.dist.len(),
+                pp(s.0),
+                pp(s.1)
+            );
+            let q = dist.quartiles();
+            println!(
+                "quartiles: {} {} {} {} {}",
+                pp(q.0),
+                pp(q.1),
+                pp(q.2),
+                pp(q.3),
+                pp(q.4)
+            );
+        }
+    });
     let level = LEVELS.iter().position(|&e| e == level).unwrap();
     lazy_static::initialize(&BIN_SUMS);
     lazy_static::initialize(&COST);
@@ -11,24 +37,7 @@ pub fn calculate3(level: i32, safeguard: bool) -> Vec<((Star, Star), Vec<(u64, f
     let mut table_chance_time: FxHashMap<(Star, Star), Distr> = FxHashMap::default();
     table.insert((12, 12), Distr::zero());
     let update = |table: &mut FxHashMap<_, _>, start: Star, target: Star, dist: Distr| {
-        let s = dist.stats();
-        println!(
-            "{} -> {} dist size: {} mean: {} stddev: {}",
-            start,
-            target,
-            dist.dist.len(),
-            pp(s.0),
-            pp(s.1)
-        );
-        let q = dist.quartiles();
-        println!(
-            "quartiles: {} {} {} {} {}",
-            pp(q.0),
-            pp(q.1),
-            pp(q.2),
-            pp(q.3),
-            pp(q.4)
-        );
+        to_reporter.send((start, target, dist.clone())).unwrap();
         table.insert((start, target), dist);
     };
     let dist_below = |table: &FxHashMap<_, Distr>, table_chance: &FxHashMap<_, _>, start: Star| {

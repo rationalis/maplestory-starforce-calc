@@ -22,7 +22,6 @@ fn main() {
     let t = SystemTime::now();
     let table = calculate3(160, false);
     println!("Finished in {} seconds", t.elapsed().unwrap().as_secs_f32());
-    println!("Writing to file...");
 
     let table: Vec<(Star, Star, u64, f64)> =
         table.into_iter()
@@ -42,5 +41,6 @@ fn main() {
                                &to_params(&tuple).unwrap().to_slice()).unwrap();
         });
 
+    println!("Writing to file...");
     connection.backup(rusqlite::DatabaseName::Main, "output.db", None).expect("failed db backup");
 }
