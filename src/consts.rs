@@ -1,4 +1,5 @@
 use crate::distr::round_bucket;
+pub use crate::units::Meso;
 
 use lazy_static::*;
 use noisy_float::prelude::*;
@@ -18,10 +19,10 @@ pub fn g(f: F) -> f64 {
     f.raw()
 }
 
-pub type Meso = i32;
 pub type Star = u8;
 
-pub const UNIT: Meso = 100_000;
+pub const BASE_STAR_FACTOR: f32 = 11f32.powf(2.7) / 400f32;
+
 pub const STAR_LIMIT: Star = 22;
 pub const PROB_COUNT: usize = (STAR_LIMIT - 10) as usize;
 pub const NUM_LEVELS: usize = 4;
@@ -31,9 +32,8 @@ pub const MAX_BOOMS: usize = 15;
 pub const MAX_DOWNS: usize = 64;
 
 pub const DIST_THRESHOLD: f64 = 1e-6;
-pub const IDENT_BINS: usize = 100;
-pub const NUM_BINS: usize = 1300;
-pub const BIN_EXP: f64 = 1.01;
+pub const NUM_BINS: usize = 2048;
+pub const BIN_EXP: f64 = 1.0085;
 
 pub const PROBS_F64: [[f64; 4]; PROB_COUNT] = [
     [0.5, 0.5, 0., 0.],
@@ -63,10 +63,11 @@ lazy_static! {
         probs
     };
     pub static ref COST: [[Meso; STAR_LIMIT as usize]; NUM_LEVELS] = {
-        let mut costs = [[0; STAR_LIMIT as usize]; NUM_LEVELS];
+        let mut costs = [[0f32.into(); STAR_LIMIT as usize]; NUM_LEVELS];
 
         for (i, &level) in LEVELS.iter().enumerate() {
             for star in 10u8..22 {
+                //costs[i as usize][star as usize] = cost(star, level);
                 costs[i as usize][star as usize] = cost(star, level);
             }
         }
@@ -74,23 +75,12 @@ lazy_static! {
         costs
     };
     pub static ref BINS: [Meso; NUM_BINS] = {
-        let mut bins = [0; NUM_BINS];
+        let mut bins = [0f32.into(); NUM_BINS];
         for i in 0..NUM_BINS {
-            if i <= IDENT_BINS {
-                bins[i] = i as i32;
-            } else {
-                let frac: f64 = BIN_EXP.powi((i as i32) - IDENT_BINS as i32);
-                bins[i] = (IDENT_BINS as f64 * frac).round() as i32;
-            }
+            let frac: f64 = BIN_EXP.powi(i as i32);
+            bins[i] = ((frac as f32) * BASE_STAR_FACTOR).into();
         }
         bins
-    };
-    pub static ref BINS_D: [Meso; NUM_BINS] = {
-        let mut bins_d = [0; NUM_BINS];
-        for i in 1..NUM_BINS {
-            bins_d[i] = (BINS[i] + BINS[i - 1]) / 2;
-        }
-        bins_d
     };
     pub static ref BIN_SUMS: Vec<[u16; NUM_BINS]> = {
         let mut bin_sums = Vec::with_capacity(NUM_BINS);
@@ -105,11 +95,11 @@ lazy_static! {
     };
 }
 
-pub fn round(mesos: Meso, unit: i32) -> Meso {
-    (mesos + (unit / 2)) / unit * unit
-}
+// pub fn round(mesos: Meso, unit: i32) -> Meso {
+//     (mesos + (unit / 2)) / unit * unit
+// }
 
-pub fn cost(star: Star, level: i32) -> i32 {
+pub fn cost(star: Star, level: i32) -> Meso {
     let level_factor: f32 = level.pow(3) as f32;
     let star_factor: f32 = ((star + 1) as f32).powf(2.7);
     let denom: f32 = match star {
@@ -120,13 +110,13 @@ pub fn cost(star: Star, level: i32) -> i32 {
         _ => panic!(),
     } as f32;
     let cost = 1000f32 + (level_factor as f32) * star_factor / denom;
-    let cost_approx = round(cost as i32, UNIT) / UNIT;
+    // let cost_approx = round(cost as i32, UNIT) / UNIT;
     println!(
-        "at level {} it costs {} mesos at {} stars, rounded to {}",
+        "at level {} it costs {} mesos at {} stars, star-dependent factor is {}",
         level,
         pp(cost as u64),
         star,
-        pp((round_bucket(cost_approx).1 * UNIT) as u64)
+        star_factor / denom
     );
-    cost_approx
+    (star_factor / denom / BASE_STAR_FACTOR).into()
 }

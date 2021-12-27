@@ -30,12 +30,13 @@ pub fn calculate3(level: i32, safeguard: bool) -> Vec<((Star, Star), Vec<(u64, f
             );
         }
     });
-    let level = LEVELS.iter().position(|&e| e == level).unwrap();
-    lazy_static::initialize(&BIN_SUMS);
-    lazy_static::initialize(&COST);
+    // let level = LEVELS.iter().position(|&e| e == level).unwrap();
+    // lazy_static::initialize(&BIN_SUMS);
+    // lazy_static::initialize(&COST);
     let mut table: FxHashMap<(Star, Star), Distr> = FxHashMap::default();
     let mut table_chance_time: FxHashMap<(Star, Star), Distr> = FxHashMap::default();
-    table.insert((12, 12), Distr::zero());
+    // for booming
+    table.insert((12, 12), distr::zero());
     let update = |table: &mut FxHashMap<_, _>, start: Star, target: Star, dist: Distr| {
         to_reporter.send((start, target, dist.clone())).unwrap();
         table.insert((start, target), dist);
@@ -49,15 +50,16 @@ pub fn calculate3(level: i32, safeguard: bool) -> Vec<((Star, Star), Vec<(u64, f
             if start != target - 1 {
                 let dist1 = &table[&(start, start + 1)];
                 let dist2 = &table[&(start + 1, target)];
-                let dist = dist1.add(dist2);
+                let dist = convolve(dist1, dist2);
                 update(&mut table, start, target, dist);
                 continue;
             }
-            let cost = COST[level][start as usize];
+            let cost: Meso = COST[start as usize];
+
             let [up, stay, mut down, mut boom] = PROBS_F64[(start - 10) as usize];
             if down == 0. && boom == 0. {
-                let mut dist = Distr::geom(up);
-                dist.scale(COST[level][start as usize]);
+                let mut dist = distr::geom(up);
+                dist *= COST[start as usize];
                 update(&mut table, start, target, dist);
                 continue;
             }
@@ -66,6 +68,9 @@ pub fn calculate3(level: i32, safeguard: bool) -> Vec<((Star, Star), Vec<(u64, f
                 down += boom;
                 boom = 0.0;
             }
+
+            // un-mut
+            let [up, stay, down, boom] = [up, stay, down, boom];
 
             let joint = Distr::sim([up, stay, down, boom]);
 
@@ -77,13 +82,13 @@ pub fn calculate3(level: i32, safeguard: bool) -> Vec<((Star, Star), Vec<(u64, f
             let keys = keys;
             let mut downs_dists = Vec::new();
             let mut booms_dists = Vec::new();
-            downs_dists.push(Distr::zero());
-            booms_dists.push(Distr::zero());
+            downs_dists.push(distr::zero());
+            booms_dists.push(distr::zero());
             let base_downs_dist = dist_below(&table, &table_chance_time, start);
             let base_booms_dist = if boom > 0.0 {
                 table[&(12, start)].clone()
             } else {
-                Distr::zero()
+                distr::zero()
             };
             downs_dists.push(base_downs_dist);
             if boom > 0.0 {

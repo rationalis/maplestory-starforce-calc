@@ -1,57 +1,47 @@
 use crate::consts::*;
 use crate::prio::Prio;
 
-use std::cmp::Ordering;
+use std::cmp::{Ordering, PartialEq};
 use std::hash::Hash;
 use std::ops::{Add, AddAssign, Mul, MulAssign};
 
+use ndarray::{Array, Array1};
 use rustc_hash::FxHashMap;
 
-pub fn merge_or_insert<K, V, D>(dist: &mut FxHashMap<K, V>, key: K, p: D)
-where
-    K: Eq + Hash,
-    V: AddAssign<D>,
-    D: Copy + Into<V>,
-{
-    dist.entry(key)
-        .and_modify(|p0| *p0 += p)
-        .or_insert(p.into());
-}
-
 pub fn round_bucket(mesos: Meso) -> (u16, Meso) {
-    if mesos <= IDENT_BINS as i32 {
-        return (mesos as u16, mesos);
-    }
-    round_bucket_impl(&*BINS, mesos)
-}
-
-pub fn round_bucket_impl(bins: &[Meso], mesos: Meso) -> (u16, Meso) {
-    let c = mesos;
-    let res = bins.binary_search(&c);
-    let idx = match res {
-        Ok(found) => found,
-        Err(insertion) => {
-            let mut closest = None;
-            let mut closest_diff = None;
-            if insertion < bins.len() {
-                closest = Some(insertion);
-                closest_diff = Some((bins[insertion] - c).abs());
-            }
-            if insertion > 0 {
-                if closest.is_none() || (bins[insertion - 1] - c).abs() < closest_diff.unwrap() {
-                    closest = Some(insertion - 1);
-                }
-            }
-            closest.unwrap()
-        }
-    };
-    (idx as u16, bins[idx])
+    let repr: f32 = mesos.into();
+    let idx = repr.log(BIN_EXP as f32) - BASE_STAR_FACTOR.log(BIN_EXP as f32);
+    let idx = idx.round() as u16;
+    (idx, BINS[idx as usize])
+    //round_bucket_impl(&*BINS, mesos)
 }
 
 pub fn unbin(u: u16) -> Meso {
     BINS[u as usize]
 }
 
+pub type Distr = Array1<f64>;
+
+pub fn zero_distr() -> Distr {
+    Array::zeros((NUM_BINS))
+}
+
+pub fn geom() -> Distr {
+    let mut dist = Vec::new();
+    let mut remaining = 1.0;
+    let mut i = 1;
+    while remaining > DIST_THRESHOLD {
+        dist.push((i, remaining * p));
+        i += 1;
+        remaining -= remaining * p;
+    }
+    Array::from_vec(dist)
+}
+
+pub fn fftlog(d: Distr) -> Distr {
+}
+
+/*
 #[derive(Clone, Debug)]
 pub struct Distr {
     pub dist: Vec<(u16, f64)>,
@@ -122,7 +112,7 @@ impl Distr {
     /// At checkpoint stars with 0 down chance (10, 15, 20), the number of downs
     /// is fixed to 0 and the number of attempts can vary, so this function will
     /// also map (downs, booms) to a distribution.
-    pub fn sim(probs: [f64; 4]) -> FxHashMap<(u8, u8), PartialDistr> {
+    pub fn sim(probs: [f64; 4]) -> FxHashMap<(u8, u8), PartialDistr<i32>> {
         let [up, stay, down, boom] = probs;
         let mut successes = FxHashMap::default();
         let mut states: Prio<(u8, u8), PartialDistr> = Prio::new();
@@ -179,16 +169,19 @@ impl Distr {
 
     /// Calculate the mean and standard deviation.
     pub fn stats(&self) -> (u64, u64) {
-        let mean: f64 = self.dist.iter().map(|(c, p)| (unbin(*c) as f64) * p).sum();
+        let mean: f64 = self.dist.iter().map(|(c, p)| (unbin(*c).into()) * p).sum();
         let stddev: f64 = self
             .dist
             .iter()
-            .map(|(c, p)| (unbin(*c) as f64 - mean).powi(2) * p)
+            .map(|(c, p)| (f64::from(unbin(*c)) - mean).powi(2) * p)
             .sum::<f64>()
             .sqrt();
-        let mean = (UNIT as f64) * mean;
-        let stddev = (UNIT as f64) * stddev;
-        (mean as u64, stddev as u64)
+        // TODO
+        // let mean = (UNIT as f64) * mean;
+        // let stddev = (UNIT as f64) * stddev;
+        // (mean as u64, stddev as u64)
+
+        (0, 0)
     }
 
     /// Calculate the lowest known cost, 3 quartiles, and the 99th percentile.
@@ -223,11 +216,13 @@ impl Distr {
         let min = dist.first().unwrap().0;
 
         (
-            unbin(min) as u64 * UNIT as u64,
-            unbin(quartile1) as u64 * UNIT as u64,
-            unbin(quartile2) as u64 * UNIT as u64,
-            unbin(quartile3) as u64 * UNIT as u64,
-            unbin(max) as u64 * UNIT as u64,
+            0,0,0,0,0
+            // TODO
+            // unbin(min) as u64 * UNIT as u64,
+            // unbin(quartile1) as u64 * UNIT as u64,
+            // unbin(quartile2) as u64 * UNIT as u64,
+            // unbin(quartile3) as u64 * UNIT as u64,
+            // unbin(max) as u64 * UNIT as u64,
         )
     }
 
@@ -250,41 +245,41 @@ impl AddAssign<&Distr> for Distr {
     }
 }
 
-impl Add<i32> for &Distr {
+impl Add<Meso> for &Distr {
     type Output = Distr;
 
-    fn add(self, other: i32) -> Self::Output {
+    fn add(self, other: Meso) -> Self::Output {
         let mut res = self.clone();
         res.shift(other);
         res
     }
 }
 
-impl MulAssign<i32> for Distr {
-    fn mul_assign(&mut self, other: i32) {
+impl MulAssign<Meso> for Distr {
+    fn mul_assign(&mut self, other: Meso) {
         self.scale(other);
     }
 }
 
-impl Mul<i32> for &Distr {
+impl Mul<Meso> for &Distr {
     type Output = Distr;
 
-    fn mul(self, other: i32) -> Self::Output {
+    fn mul(self, other: Meso) -> Self::Output {
         let mut res = self.clone();
         res.scale(other);
         res
     }
 }
 
-impl Add<&PartialDistr> for Distr {
-    type Output = PartialDistr;
+impl Add<&PartialDistr<Meso>> for Distr {
+    type Output = PartialDistr<Meso>;
 
-    fn add(self, other: &PartialDistr) -> Self::Output {
+    fn add(self, other: &PartialDistr<Meso>) -> Self::Output {
         let mut res = PartialDistr::default();
         for (c, p) in self.iter() {
             let p = f(p);
             for (c2, p2) in other.dist.iter() {
-                merge_or_insert(&mut res.dist, round_bucket(c + c2).1, p * p2);
+                merge_or_insert(&mut res.dist, round_bucket(c + *c2).1, p * p2);
                 res.total += p * p2;
             }
         }
@@ -295,18 +290,22 @@ impl Add<&PartialDistr> for Distr {
 impl Into<Vec<(u64, f64)>> for Distr {
     fn into(self) -> Vec<(u64, f64)> {
         self.dist.iter()
-            .map(|&(c, p)| (unbin(c) as u64 * UNIT as u64, p))
+            // .map(|&(c, p)| (unbin(c) as u64 * UNIT as u64, p))
+            // TODO
+            .map(|&(c, p)| (0u64, 0f64))
             .collect()
     }
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct PartialDistr {
+pub struct PartialDistr<T>
+where T: Hash + PartialEq
+{
     pub total: F,
-    pub dist: FxHashMap<Meso, F>,
+    pub dist: FxHashMap<T, F>,
 }
 
-impl PartialDistr {
+impl<T> PartialDistr<T> where T: Hash + PartialEq {
     pub fn mix(&mut self, other: Self) {
         for (&c, &p) in other.dist.iter() {
             merge_or_insert(&mut self.dist, c, p);
@@ -315,7 +314,7 @@ impl PartialDistr {
     }
 }
 
-impl Into<Distr> for PartialDistr {
+impl<T> Into<Distr> for PartialDistr<T> where T: Hash + PartialEq {
     fn into(self) -> Distr {
         Distr::new(
             self.dist
@@ -326,19 +325,21 @@ impl Into<Distr> for PartialDistr {
     }
 }
 
-impl Ord for PartialDistr {
+impl<T> Ord for PartialDistr<T> where T: Hash + PartialEq + Ord
+{
     fn cmp(&self, other: &Self) -> Ordering {
         self.total.cmp(&other.total)
     }
 }
 
-impl PartialOrd for PartialDistr {
+impl<T> PartialOrd for PartialDistr<T> where T: Hash + PartialEq + PartialOrd
+{
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.total.cmp(&other.total))
     }
 }
 
-impl From<(Meso, F)> for PartialDistr {
+impl<T> From<(Meso, F)> for PartialDistr<T> where T: Hash + PartialEq {
     fn from(val: (Meso, F)) -> Self {
         let mut res = Self::default();
         res += val;
@@ -346,27 +347,33 @@ impl From<(Meso, F)> for PartialDistr {
     }
 }
 
-impl From<&PartialDistr> for F {
-    fn from(distr: &PartialDistr) -> F {
+impl<T> From<&PartialDistr<T>> for F where T: Hash + PartialEq {
+    fn from(distr: &PartialDistr<T>) -> F {
         distr.total
     }
 }
 
-impl AddAssign<(Meso, F)> for PartialDistr {
-    fn add_assign(&mut self, other: (Meso, F)) {
+impl<T> AddAssign<(T, F)> for PartialDistr<T>
+    where T: PartialEq + Eq + Hash
+{
+    fn add_assign(&mut self, other: (T, F)) {
         let (c, p) = other;
         merge_or_insert(&mut self.dist, c, p);
         self.total += p;
     }
 }
 
-impl Mul<i32> for &PartialDistr {
-    type Output = PartialDistr;
+impl<T> Mul<T> for &PartialDistr<T>
+    where T: PartialEq + Hash + Mul, <T as Mul>::Output: Default
+{
+    type Output = PartialDistr<T>;
 
-    fn mul(self, other: i32) -> Self::Output {
+    fn mul(self, other: T) -> Self::Output {
         let mut res = PartialDistr::default();
-        res.dist = self.dist.iter().map(|(k, v)| (k * other, *v)).collect();
+        res.dist = self.dist.iter().map(|(k, v)| (*k * other, *v)).collect();
         res.total = self.total;
         res
     }
 }
+
+*/
