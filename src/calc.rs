@@ -50,7 +50,7 @@ pub fn calculate3(level: i32, safeguard: bool) -> Vec<((Star, Star), Vec<(u64, f
             if start != target - 1 {
                 let dist1 = &table[&(start, start + 1)];
                 let dist2 = &table[&(start + 1, target)];
-                let dist = convolve(dist1, dist2);
+                let dist = distr::convolve(dist1, dist2);
                 update(&mut table, start, target, dist);
                 continue;
             }
@@ -72,7 +72,7 @@ pub fn calculate3(level: i32, safeguard: bool) -> Vec<((Star, Star), Vec<(u64, f
             // un-mut
             let [up, stay, down, boom] = [up, stay, down, boom];
 
-            let joint = Distr::sim([up, stay, down, boom]);
+            let joint = distr::sim([up, stay, down, boom]);
 
             let cost_below = COST[level][(start - 1) as usize];
             let mut dist = PartialDistr::default();

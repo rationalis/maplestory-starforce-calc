@@ -1,5 +1,4 @@
 use crate::distr::round_bucket;
-pub use crate::units::Meso;
 
 use lazy_static::*;
 use noisy_float::prelude::*;
@@ -19,6 +18,7 @@ pub fn g(f: F) -> f64 {
     f.raw()
 }
 
+pub type Meso = f64;
 pub type Star = u8;
 
 pub const BASE_STAR_FACTOR: f32 = 11f32.powf(2.7) / 400f32;
