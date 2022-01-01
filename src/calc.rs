@@ -75,8 +75,8 @@ pub fn calculate3(level: i32, safeguard: bool) -> Vec<((Star, Star), Vec<(u64, f
             let joint = distr::sim([up, stay, down, boom]);
 
             let cost_below = COST[level][(start - 1) as usize];
-            let mut dist = PartialDistr::default();
-            let mut dist_chance_time = PartialDistr::default();
+            let mut dist = distr::all_empty();
+            let mut dist_chance_time = distr::all_empty();
             let mut keys: Vec<_> = joint.keys().collect();
             keys.sort_unstable();
             let keys = keys;
@@ -98,23 +98,23 @@ pub fn calculate3(level: i32, safeguard: bool) -> Vec<((Star, Star), Vec<(u64, f
                 let &(downs, booms) = key;
                 let (downs, booms) = (downs as usize, booms as usize);
                 if downs == downs_dists.len() {
-                    downs_dists.push(downs_dists.last().unwrap() + &downs_dists[1]);
+                    downs_dists.push(distr::convolve(downs_dists.last().unwrap(), &downs_dists[1]));
                 }
                 if booms == booms_dists.len() {
-                    booms_dists.push(booms_dists.last().unwrap() + &booms_dists[1]);
+                    booms_dists.push(distr::convolve(booms_dists.last().unwrap(), &booms_dists[1]));
                 }
-                let booms_plus_downs = &downs_dists[downs] + &booms_dists[booms];
+                let booms_plus_downs = distr::convolve(&downs_dists[downs], &booms_dists[booms]);
                 let stays = joint.get(key).unwrap() * cost;
                 if down > 0.0 && start < 21 {
                     let bpd_chance_time = if downs > 0 {
-                        &(&downs_dists[downs - 1] + cost_below) + &booms_dists[booms]
+                        distr::convolve(&downs_dists[downs - 1] + cost_below, &booms_dists[booms]);
                     } else {
                         booms_dists[booms].clone()
                     };
-                    let total_cost_chance_time = bpd_chance_time + &stays;
+                    let total_cost_chance_time = distr::convolve(bpd_chance_time, &stays);
                     dist_chance_time.mix(total_cost_chance_time);
                 }
-                let total_cost = booms_plus_downs + &stays;
+                let total_cost = distr::convolve(booms_plus_downs + &stays);
                 dist.mix(total_cost);
             }
 
