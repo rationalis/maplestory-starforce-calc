@@ -23,7 +23,9 @@ impl Distr {
     }
 
     pub fn zero() -> Distr {
-        unimplemented!()
+        Self {
+            raw: FxHashMap::from([(f(0.0), 1.0)])
+        }
     }
 
     pub fn implicit(&self) -> ImplicitDistr {
@@ -91,16 +93,16 @@ pub fn all_empty() -> ImplicitDistr {
     }
 }
 
-pub fn geom(p: f64) -> Distr {
-    let mut dist = Vec::new();
+pub fn geom(p_succ: f64) -> Distr {
+    let mut dist = Distr::default();
     let mut remaining = 1.0;
     let mut i = 1;
     while remaining > DIST_THRESHOLD {
-        dist.push((i, remaining * p));
+        dist += (i, remaining * p_succ);
         i += 1;
-        remaining -= remaining * p;
+        remaining -= remaining * p_succ;
     }
-    Array::from_vec(dist)
+    dist
 }
 
 /// Calculate the joint distribution (i.e. negative multinomial) of outcomes.

@@ -31,7 +31,7 @@ pub const LEVELS: [i32; NUM_LEVELS] = [140, 150, 160, 200];
 pub const MAX_BOOMS: usize = 15;
 pub const MAX_DOWNS: usize = 64;
 
-pub const DIST_THRESHOLD: f64 = 1e-6;
+pub const DIST_THRESHOLD: f64 = 1e-10;
 pub const NUM_BINS: usize = 2048;
 pub const BIN_EXP: f64 = 1.0085;
 

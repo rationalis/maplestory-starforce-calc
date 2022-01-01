@@ -30,13 +30,14 @@ pub fn calculate3(level: i32, safeguard: bool) -> Vec<((Star, Star), Vec<(u64, f
             );
         }
     });
-    // let level = LEVELS.iter().position(|&e| e == level).unwrap();
-    // lazy_static::initialize(&BIN_SUMS);
-    // lazy_static::initialize(&COST);
+    let level = LEVELS.iter().position(|&e| e == level).unwrap();
+    lazy_static::initialize(&BIN_SUMS);
+    lazy_static::initialize(&COST);
+    // TODO: add separate tables for implicits -- this will save on FFTs
     let mut table: FxHashMap<(Star, Star), Distr> = FxHashMap::default();
     let mut table_chance_time: FxHashMap<(Star, Star), Distr> = FxHashMap::default();
     // for booming
-    table.insert((12, 12), distr::zero());
+    table.insert((12, 12), Distr::zero());
     let update = |table: &mut FxHashMap<_, _>, start: Star, target: Star, dist: Distr| {
         to_reporter.send((start, target, dist.clone())).unwrap();
         table.insert((start, target), dist);
@@ -50,6 +51,7 @@ pub fn calculate3(level: i32, safeguard: bool) -> Vec<((Star, Star), Vec<(u64, f
             if start != target - 1 {
                 let dist1 = &table[&(start, start + 1)];
                 let dist2 = &table[&(start + 1, target)];
+                // TODO: with a separate implicits table, we can replace this with a normal conv
                 let dist = distr::convolve_explicit(dist1, dist2);
                 update(&mut table, start, target, dist);
                 continue;
@@ -57,7 +59,7 @@ pub fn calculate3(level: i32, safeguard: bool) -> Vec<((Star, Star), Vec<(u64, f
             let cost: Meso = COST[start as usize];
 
             let [up, stay, mut down, mut boom] = PROBS_F64[(start - 10) as usize];
-            if down == 0. && boom == 0. {
+            if down == 0. && (boom == 0. || safeguard) {
                 let mut dist = distr::geom(up);
                 dist *= COST[start as usize];
                 update(&mut table, start, target, dist);
