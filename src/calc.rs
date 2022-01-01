@@ -50,7 +50,7 @@ pub fn calculate3(level: i32, safeguard: bool) -> Vec<((Star, Star), Vec<(u64, f
             if start != target - 1 {
                 let dist1 = &table[&(start, start + 1)];
                 let dist2 = &table[&(start + 1, target)];
-                let dist = distr::convolve(dist1, dist2);
+                let dist = distr::convolve_explicit(dist1, dist2);
                 update(&mut table, start, target, dist);
                 continue;
             }
@@ -75,47 +75,53 @@ pub fn calculate3(level: i32, safeguard: bool) -> Vec<((Star, Star), Vec<(u64, f
             let joint = distr::sim([up, stay, down, boom]);
 
             let cost_below = COST[level][(start - 1) as usize];
-            let mut dist = distr::all_empty();
-            let mut dist_chance_time = distr::all_empty();
+            let mut dist: Distr = distr::all_empty();
+            let mut dist_chance_time: Distr = distr::all_empty();
             let mut keys: Vec<_> = joint.keys().collect();
             keys.sort_unstable();
             let keys = keys;
-            let mut downs_dists = Vec::new();
-            let mut booms_dists = Vec::new();
-            downs_dists.push(distr::zero());
-            booms_dists.push(distr::zero());
-            let base_downs_dist = dist_below(&table, &table_chance_time, start);
-            let base_booms_dist = if boom > 0.0 {
-                table[&(12, start)].clone()
-            } else {
-                distr::zero()
-            };
-            downs_dists.push(base_downs_dist);
+            let mut downs_dists: Vec<ImplicitDistr> = Vec::new();
+            let mut booms_dists: Vec<ImplicitDistr> = Vec::new();
+            // zeros (should NEVER actually be fft'd/convolved)
+            downs_dists.push(ImplicitDistr::default());
+            booms_dists.push(ImplicitDistr::default());
+            // distributions of cost for single down/boom
+            downs_dists.push(dist_below(&table, &table_chance_time, start).implicit());
             if boom > 0.0 {
-                booms_dists.push(base_booms_dist);
+                booms_dists.push(table[&(12, start)].clone().implicit());
             }
+            // TODO: use max_downs, max_booms and separately precompute instead (parallel possible)
+            // TODO: investigate -- computing directly from (downs, booms) pair sums to halve convolutions
             for key in keys {
                 let &(downs, booms) = key;
                 let (downs, booms) = (downs as usize, booms as usize);
                 if downs == downs_dists.len() {
-                    downs_dists.push(distr::convolve(downs_dists.last().unwrap(), &downs_dists[1]));
+                    downs_dists.push(downs_dists.last().unwrap() + &downs_dists[1]);
                 }
                 if booms == booms_dists.len() {
-                    booms_dists.push(distr::convolve(booms_dists.last().unwrap(), &booms_dists[1]));
+                    booms_dists.push(booms_dists.last().unwrap() + &booms_dists[1]);
                 }
-                let booms_plus_downs = distr::convolve(&downs_dists[downs], &booms_dists[booms]);
-                let stays = joint.get(key).unwrap() * cost;
+                // avoid convolution on zero distr
+                let booms_plus_downs = match (downs, booms) {
+                    (0, _) => &booms_dists[booms],
+                    (_, 0) => &downs_dists[downs],
+                    _ => &downs_dists[downs] + &booms_dists[booms]
+                };
+
+                let stays = joint.get(key).unwrap();
+                stays.raw_mut() *= cost;
+
                 if down > 0.0 && start < 21 {
                     let bpd_chance_time = if downs > 0 {
-                        distr::convolve(&downs_dists[downs - 1] + cost_below, &booms_dists[booms]);
+                        (&downs_dists[downs - 1].shift(cost_below)) + &booms_dists[booms];
                     } else {
                         booms_dists[booms].clone()
                     };
-                    let total_cost_chance_time = distr::convolve(bpd_chance_time, &stays);
-                    dist_chance_time.mix(total_cost_chance_time);
+                    let total_cost_chance_time = bpd_chance_time + &stays;
+                    dist_chance_time.density_mut() += total_cost_chance_time.ifft();
                 }
-                let total_cost = distr::convolve(booms_plus_downs + &stays);
-                dist.mix(total_cost);
+                let total_cost = booms_plus_downs + &stays;
+                dist.density_mut() += total_cost.ifft();
             }
 
             if start < 21 && down > 0.0 {

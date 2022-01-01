@@ -6,9 +6,61 @@ use std::hash::Hash;
 use std::ops::{Add, AddAssign, Mul, MulAssign};
 
 use ndarray::{Array, Array1};
+use noisy_float::types::R64;
 use rustc_hash::FxHashMap;
 
-pub type Distr = Array1<f64>;
+/// Design: arbitrary distr = struct {support, density}; standardized distr = density
+/// Standardized distr default op is ONLY add which does convolution
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Distr {
+    raw: FxHashMap<R64, f64>
+}
+
+impl Distr {
+    pub fn raw_mut(&mut self) -> &mut FxHashMap<R64, f64> {
+        &self.raw
+    }
+
+    pub fn zero() -> Distr {
+        unimplemented!()
+    }
+
+    pub fn implicit(&self) -> ImplicitDistr {
+        unimplemented!()
+    }
+}
+
+impl AddAssign<(R64, f64)> for Distr {
+    fn add_assign(&mut self, rhs: (R64, f64)) {
+        merge_or_insert(self.raw, rhs.0, rhs.1)
+    }
+}
+
+impl MulAssign<f64> for Distr {
+    fn mul_assign(&mut self, rhs: f64) {
+        self.density = self.density.into_iter().map(|(k,v)| (k*rhs, v)).collect();
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ImplicitDistr {
+    density: Array1<f64>
+}
+
+impl ImplicitDistr {
+    pub fn density_mut(&mut self) -> &mut Array1<f64> {
+        self.density
+    }
+
+    pub fn ifft(&self) -> Array1<f64> {
+        unimplemented!()
+    }
+
+    pub fn shift(&self, c: f64) -> ImplicitDistr {
+        unimplemented!()
+    }
+}
 
 pub fn merge_or_insert<K, V, D>(dist: &mut FxHashMap<K, V>, key: K, p: D)
 where
@@ -33,8 +85,10 @@ pub fn unbin(u: u16) -> Meso {
     BINS[u as usize]
 }
 
-pub fn all_empty() -> Distr {
-    Array::zeros((NUM_BINS))
+pub fn all_empty() -> ImplicitDistr {
+    ImplicitDistr {
+        density: Array::zeros((NUM_BINS))
+    }
 }
 
 pub fn geom(p: f64) -> Distr {
@@ -53,17 +107,17 @@ pub fn geom(p: f64) -> Distr {
 /// At checkpoint stars with 0 down chance (10, 15, 20), the number of downs
 /// is fixed to 0 and the number of attempts can vary, so this function will
 /// also map (downs, booms) to a distribution.
-pub fn sim(probs: [f64; 4]) -> FxHashMap<(u8, u8), PartialDistr<i32>> {
+pub fn sim(probs: [f64; 4]) -> FxHashMap<(u8, u8), Distr> {
     let [up, stay, down, boom] = probs;
     let mut successes = FxHashMap::default();
-    let mut states: Prio<(u8, u8), PartialDistr> = Prio::new();
-    let update = |states: &mut Prio<_, _>, k, v: (Meso, F)| {
+    let mut states: Prio<(u8, u8), Distr> = Prio::new();
+    let update = |states: &mut Prio<_, _>, k, v: (R64, F)| {
         if v.1 < f(1e-16) {
             return;
         }
         states.push(k, v);
     };
-    states.push((0, 0), (0, f(1.0)));
+    states.push((0, 0), (f(0.0), f(1.0)));
     while states.total_prob > 1e-6 {
         let ((downs, booms), pdist) = states.pop();
         for (attempts, &p) in pdist.dist.iter() {
@@ -78,10 +132,15 @@ pub fn sim(probs: [f64; 4]) -> FxHashMap<(u8, u8), PartialDistr<i32>> {
 }
 
 pub fn fftlog(d: Distr) -> Distr {
+    unimplemented!()
 }
 
 pub fn convolve(d: Distr, d2: Distr) -> Distr {
+    unimplemented!()
+}
 
+pub fn convolve_explicit(d: Distr, d2: Distr) -> Distr {
+    unimplemented!()
 }
 
 /*
