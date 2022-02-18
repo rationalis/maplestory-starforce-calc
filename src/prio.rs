@@ -6,6 +6,12 @@ use rustc_hash::FxHasher;
 
 type F = R64;
 
+/// This struct is used to store multiple disjoint events with different probabilities,
+/// supporting push and pop operations, where:
+/// (1) when a duplicate event is pushed, the probability is added to the existing one
+/// (2) events are popped in order of highest probability first
+/// (3) push is logarithmic time
+/// (4) pop is logarithmic time
 pub struct Prio<K: Hash + Eq, V: Ord> {
     pub all_states: IndexMap<K, V, BuildHasherDefault<FxHasher>>,
     pub total_prob: F,

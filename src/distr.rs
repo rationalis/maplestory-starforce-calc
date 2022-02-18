@@ -1,7 +1,7 @@
 use crate::consts::*;
 use crate::prio::Prio;
 
-use std::cmp::{Ordering, PartialEq};
+use std::cmp::{Ordering, PartialEq, Ord};
 use std::hash::Hash;
 use std::ops::{Add, AddAssign, Mul, MulAssign};
 
@@ -14,18 +14,17 @@ use rustc_hash::FxHashMap;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Distr {
-    raw: FxHashMap<R64, f64>
+    raw: FxHashMap<R64, R64>,
+    total: R64
 }
 
 impl Distr {
-    pub fn raw_mut(&mut self) -> &mut FxHashMap<R64, f64> {
-        &self.raw
+    fn raw_mut(&mut self) -> &mut FxHashMap<R64, R64> {
+        &mut self.raw
     }
 
     pub fn zero() -> Distr {
-        Self {
-            raw: FxHashMap::from([(f(0.0), 1.0)])
-        }
+        Distr::from((f(0.0),f(1.0)))
     }
 
     pub fn implicit(&self) -> ImplicitDistr {
@@ -33,26 +32,56 @@ impl Distr {
     }
 }
 
-impl AddAssign<(R64, f64)> for Distr {
-    fn add_assign(&mut self, rhs: (R64, f64)) {
-        merge_or_insert(self.raw, rhs.0, rhs.1)
+impl AddAssign<(R64, R64)> for Distr {
+    fn add_assign(&mut self, rhs: (R64, R64)) {
+        merge_or_insert(self.raw_mut(), rhs.0, rhs.1);
+        self.total += rhs.1;
     }
 }
 
-impl MulAssign<f64> for Distr {
-    fn mul_assign(&mut self, rhs: f64) {
-        self.density = self.density.into_iter().map(|(k,v)| (k*rhs, v)).collect();
+impl MulAssign<R64> for Distr {
+    fn mul_assign(&mut self, rhs: R64) {
+        self.raw_mut().iter_mut().for_each(|(k,v)| *k *= rhs);
     }
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+impl Ord for Distr {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.total.cmp(&other.total)
+    }
+}
+
+impl From<&Distr> for R64 {
+    fn from(dist: &Distr) -> Self {
+        dist.total
+    }
+}
+
+impl From<(R64, R64)> for Distr {
+    fn from(pair: (R64, R64)) -> Self {
+        let mut map = FxHashMap::default();
+        map.insert(pair.0, pair.1);
+        Self {
+            raw: map,
+            total: pair.1
+        }
+    }
+}
+
+impl PartialOrd for Distr {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ImplicitDistr {
     density: Array1<f64>
 }
 
 impl ImplicitDistr {
     pub fn density_mut(&mut self) -> &mut Array1<f64> {
-        self.density
+        &mut self.density
     }
 
     pub fn ifft(&self) -> Array1<f64> {
@@ -76,7 +105,7 @@ where
 }
 
 pub fn round_bucket(mesos: Meso) -> (u16, Meso) {
-    let repr: f32 = mesos.into();
+    let repr: f32 = mesos as f32; //mesos.into();
     let idx = repr.log(BIN_EXP as f32) - BASE_STAR_FACTOR.log(BIN_EXP as f32);
     let idx = idx.round() as u16;
     (idx, BINS[idx as usize])
@@ -89,7 +118,7 @@ pub fn unbin(u: u16) -> Meso {
 
 pub fn all_empty() -> ImplicitDistr {
     ImplicitDistr {
-        density: Array::zeros((NUM_BINS))
+        density: Array::zeros(NUM_BINS)
     }
 }
 
@@ -98,7 +127,7 @@ pub fn geom(p_succ: f64) -> Distr {
     let mut remaining = 1.0;
     let mut i = 1;
     while remaining > DIST_THRESHOLD {
-        dist += (i, remaining * p_succ);
+        dist += (f(i as f64), f(remaining * p_succ));
         i += 1;
         remaining -= remaining * p_succ;
     }
@@ -113,7 +142,7 @@ pub fn sim(probs: [f64; 4]) -> FxHashMap<(u8, u8), Distr> {
     let [up, stay, down, boom] = probs;
     let mut successes = FxHashMap::default();
     let mut states: Prio<(u8, u8), Distr> = Prio::new();
-    let update = |states: &mut Prio<_, _>, k, v: (R64, F)| {
+    let update = |states: &mut Prio<_, _>, k, v: (R64, R64)| {
         if v.1 < f(1e-16) {
             return;
         }
@@ -122,8 +151,8 @@ pub fn sim(probs: [f64; 4]) -> FxHashMap<(u8, u8), Distr> {
     states.push((0, 0), (f(0.0), f(1.0)));
     while states.total_prob > 1e-6 {
         let ((downs, booms), pdist) = states.pop();
-        for (attempts, &p) in pdist.dist.iter() {
-            let attempts = attempts + 1;
+        for (&attempts, &p) in pdist.raw.iter() {
+            let attempts = attempts + 1.0;
             merge_or_insert(&mut successes, (downs, booms), (attempts, p * up));
             update(&mut states, (downs + 1, booms), (attempts, p * down));
             update(&mut states, (downs, booms + 1), (attempts, p * boom));
@@ -137,11 +166,11 @@ pub fn fftlog(d: Distr) -> Distr {
     unimplemented!()
 }
 
-pub fn convolve(d: Distr, d2: Distr) -> Distr {
+pub fn convolve(d: &Distr, d2: &Distr) -> Distr {
     unimplemented!()
 }
 
-pub fn convolve_explicit(d: Distr, d2: Distr) -> Distr {
+pub fn convolve_explicit(d: &Distr, d2: &Distr) -> Distr {
     unimplemented!()
 }
 

@@ -1,4 +1,5 @@
 use crate::consts::*;
+use crate::distr;
 use crate::distr::*;
 
 use std::thread;
@@ -110,8 +111,8 @@ pub fn calculate3(level: i32, safeguard: bool) -> Vec<((Star, Star), Vec<(u64, f
                     _ => &downs_dists[downs] + &booms_dists[booms]
                 };
 
-                let stays = joint.get(key).unwrap();
-                stays.raw_mut() *= cost;
+                let mut stays = joint.get(key).unwrap();
+                stays *= cost;
 
                 if down > 0.0 && start < 21 {
                     let bpd_chance_time = if downs > 0 {
