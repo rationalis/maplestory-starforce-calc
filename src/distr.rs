@@ -9,8 +9,10 @@ use ndarray::{Array, Array1};
 use noisy_float::types::R64;
 use rustc_hash::FxHashMap;
 
-/// Design: arbitrary distr = struct {support, density}; standardized distr = density
-/// Standardized distr default op is ONLY add which does convolution
+/// Design:
+/// (1) Distr = arbitrary distr = (support, density)
+/// (2) ImplicitDistr = fixed log space distr = density
+/// (3) CharacteristicDistr = fixed log space characteristic function = frequency-domain density
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Distr {
@@ -19,35 +21,43 @@ pub struct Distr {
 }
 
 impl Distr {
-    fn raw_mut(&mut self) -> &mut FxHashMap<R64, R64> {
-        &mut self.raw
-    }
-
     pub fn zero() -> Distr {
         Distr::from((f(0.0),f(1.0)))
     }
 
-    pub fn implicit(&self) -> ImplicitDistr {
+    pub fn characteristic(&self) -> CharacteristicDistr {
         unimplemented!()
     }
 }
 
 impl AddAssign<(R64, R64)> for Distr {
     fn add_assign(&mut self, rhs: (R64, R64)) {
-        merge_or_insert(self.raw_mut(), rhs.0, rhs.1);
+        merge_or_insert(&mut self.raw, rhs.0, rhs.1);
         self.total += rhs.1;
     }
 }
 
 impl MulAssign<R64> for Distr {
     fn mul_assign(&mut self, rhs: R64) {
-        self.raw_mut().iter_mut().for_each(|(k,v)| *k *= rhs);
+        self.raw = self.raw.iter().map(|(&k,&v)| (k*rhs, v)).collect()
     }
 }
 
 impl Ord for Distr {
     fn cmp(&self, other: &Self) -> Ordering {
         self.total.cmp(&other.total)
+    }
+}
+
+impl From<ImplicitDistr> for Distr {
+    fn from(dist: ImplicitDistr) -> Self {
+        unimplemented!()
+    }
+}
+
+impl From<Distr> for Vec<(u64, f64)> {
+    fn from(dist: Distr) -> Self {
+        unimplemented!()
     }
 }
 
@@ -80,16 +90,41 @@ pub struct ImplicitDistr {
 }
 
 impl ImplicitDistr {
-    pub fn density_mut(&mut self) -> &mut Array1<f64> {
-        &mut self.density
-    }
-
-    pub fn ifft(&self) -> Array1<f64> {
-        unimplemented!()
-    }
-
     pub fn shift(&self, c: f64) -> ImplicitDistr {
         unimplemented!()
+    }
+}
+
+impl AddAssign<&CharacteristicDistr> for ImplicitDistr {
+    fn add_assign(&mut self, rhs: &CharacteristicDistr) {
+        *self += &rhs.ifft();
+    }
+}
+
+impl AddAssign<&ImplicitDistr> for ImplicitDistr {
+    fn add_assign(&mut self, rhs: &ImplicitDistr) {
+        self.density += &rhs.density;
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CharacteristicDistr {
+    density: Array1<f64>
+}
+
+impl CharacteristicDistr {
+    pub fn ifft(&self) -> ImplicitDistr {
+        unimplemented!()
+    }
+}
+
+impl Add for &CharacteristicDistr {
+    type Output = CharacteristicDistr;
+
+    fn add(self, rhs: Self) -> CharacteristicDistr {
+        CharacteristicDistr {
+            density: &self.density * &rhs.density
+        }
     }
 }
 
@@ -166,10 +201,11 @@ pub fn fftlog(d: Distr) -> Distr {
     unimplemented!()
 }
 
-pub fn convolve(d: &Distr, d2: &Distr) -> Distr {
-    unimplemented!()
-}
+// pub fn convolve(d: &ImplicitDistr, d2: &ImplicitDistr) -> ImplicitDistr {
+//     unimplemented!()
+// }
 
+/// Sum two explicit distributions via convolution.
 pub fn convolve_explicit(d: &Distr, d2: &Distr) -> Distr {
     unimplemented!()
 }

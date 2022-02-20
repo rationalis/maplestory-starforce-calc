@@ -21,12 +21,10 @@ pub fn g(f: F) -> f64 {
 pub type Meso = f64;
 pub type Star = u8;
 
-pub const BASE_STAR_FACTOR: f32 = 11f32.powf(2.7) / 400f32;
-
 pub const STAR_LIMIT: Star = 22;
 pub const PROB_COUNT: usize = (STAR_LIMIT - 10) as usize;
-pub const NUM_LEVELS: usize = 4;
-pub const LEVELS: [i32; NUM_LEVELS] = [140, 150, 160, 200];
+// pub const NUM_LEVELS: usize = 4;
+// pub const LEVELS: [i32; NUM_LEVELS] = [140, 150, 160, 200];
 
 pub const MAX_BOOMS: usize = 15;
 pub const MAX_DOWNS: usize = 64;
@@ -51,6 +49,8 @@ pub const PROBS_F64: [[f64; 4]; PROB_COUNT] = [
 ];
 
 lazy_static! {
+    pub static ref BASE_STAR_FACTOR: f32 = 11f32.powf(2.7) / 400f32;
+
     pub static ref PROB_CUTOFF: F = f(1e-12);
     pub static ref ONE: F = f(1.0 - 0.5f64.powf(52.));
     pub static ref PROBS: [[F; 4]; PROB_COUNT] = {
@@ -62,14 +62,12 @@ lazy_static! {
         }
         probs
     };
-    pub static ref COST: [[Meso; STAR_LIMIT as usize]; NUM_LEVELS] = {
-        let mut costs = [[0f32.into(); STAR_LIMIT as usize]; NUM_LEVELS];
+    pub static ref COST: [Meso; STAR_LIMIT as usize] = {
+        let mut costs = [0f32.into(); STAR_LIMIT as usize];
 
-        for (i, &level) in LEVELS.iter().enumerate() {
-            for star in 10u8..22 {
-                //costs[i as usize][star as usize] = cost(star, level);
-                costs[i as usize][star as usize] = cost(star, level);
-            }
+        for star in 10u8..22 {
+            //costs[i as usize][star as usize] = cost(star, level);
+            costs[star as usize] = cost(star);
         }
 
         costs
@@ -78,7 +76,7 @@ lazy_static! {
         let mut bins = [0f32.into(); NUM_BINS];
         for i in 0..NUM_BINS {
             let frac: f64 = BIN_EXP.powi(i as i32);
-            bins[i] = ((frac as f32) * BASE_STAR_FACTOR).into();
+            bins[i] = ((frac as f32) * *BASE_STAR_FACTOR).into();
         }
         bins
     };
@@ -99,8 +97,8 @@ lazy_static! {
 //     (mesos + (unit / 2)) / unit * unit
 // }
 
-pub fn cost(star: Star, level: i32) -> Meso {
-    let level_factor: f32 = level.pow(3) as f32;
+pub fn cost(star: Star) -> Meso {
+    // let level_factor: f32 = level.pow(3) as f32;
     let star_factor: f32 = ((star + 1) as f32).powf(2.7);
     let denom: f32 = match star {
         n if 10 <= n && n <= 14 => 400,
@@ -109,14 +107,14 @@ pub fn cost(star: Star, level: i32) -> Meso {
         n if 20 <= n && n <= 22 => 100,
         _ => panic!(),
     } as f32;
-    let cost = 1000f32 + (level_factor as f32) * star_factor / denom;
-    // let cost_approx = round(cost as i32, UNIT) / UNIT;
-    println!(
-        "at level {} it costs {} mesos at {} stars, star-dependent factor is {}",
-        level,
-        pp(cost as u64),
-        star,
-        star_factor / denom
-    );
-    (star_factor / denom / BASE_STAR_FACTOR).into()
+    // let cost = 1000f32 + (level_factor as f32) * star_factor / denom;
+    // // let cost_approx = round(cost as i32, UNIT) / UNIT;
+    // println!(
+    //     "at level {} it costs {} mesos at {} stars, star-dependent factor is {}",
+    //     level,
+    //     pp(cost as u64),
+    //     star,
+    //     star_factor / denom
+    // );
+    (star_factor / denom / *BASE_STAR_FACTOR).into()
 }
