@@ -4,7 +4,6 @@ use crate::prio::Prio;
 use std::cmp::{Ord, Ordering, PartialEq};
 use std::hash::Hash;
 use std::ops::{Add, AddAssign, Mul, MulAssign};
-use std::os::raw;
 
 use ndarray::{Array, Array1};
 use noisy_float::types::R64;
@@ -123,14 +122,13 @@ impl ImplicitDistr {
 
     pub fn explicit(&self) -> Distr {
         let mut raw = Default::default();
-        let mut total = 0.0;
+        let mut total = f(0.0);
         for (bin, &prob) in self.density.iter().enumerate() {
-            merge_or_insert(&mut raw, f(unbin(bin as u16)), f(prob));
+            let prob = f(prob);
+            merge_or_insert(&mut raw, f(unbin(bin as u16)), prob);
+            total += prob;
         }
-        Distr {
-            raw,
-            total: f(total),
-        }
+        Distr { raw, total }
     }
 }
 
@@ -187,7 +185,6 @@ pub fn round_bucket(mesos: Meso) -> (u16, Meso) {
     let idx = repr.log(BIN_EXP as f32) - BASE_STAR_FACTOR.log(BIN_EXP as f32);
     let idx = idx.round() as u16;
     (idx, BINS[idx as usize])
-    //round_bucket_impl(&*BINS, mesos)
 }
 
 pub fn unbin(u: u16) -> Meso {
@@ -238,6 +235,76 @@ pub fn sim(probs: [f64; 4]) -> FxHashMap<(u8, u8), Distr> {
         }
     }
     successes
+}
+
+fn fht(a: Array1<f64>, inverse: bool) -> Array1<f64> {
+    let dln = BIN_EXP.ln();
+    let n = a.len();
+
+    // compute FHT coefficients
+    let u = fhtcoeff(n, dln);
+
+    // transform
+    let arr = fhtq(a, u, inverse);
+    arr
+}
+
+fn fhtcoeff(n: usize, dln: f64) -> ComplexArray1 {
+    let xp = 1.0;
+    let xm = 1.0;
+    let y = np.linspace(0, np.pi*(n/2)/(n*dln), n/2+1);
+    let u = np.empty(n/2+1, dtype=complex);
+    let v = np.empty(n/2+1, dtype=complex);
+    u.imag[:] = y;
+    u.real[:] = xm;
+    loggamma(u, out=v);
+    u.real[:] = xp;
+    loggamma(u, out=u);
+    y *= 2*(LN_2);
+    u.real -= v.real;
+    u.imag += v.imag;
+    u.imag += y;
+    np.exp(u, out=u);
+
+    u.imag[-1] = 0;
+
+    // # deal with special cases
+    if not np.isfinite(u[0]) {
+        // # write u_0 = 2^q Gamma(xp)/Gamma(xm) = 2^q poch(xm, xp-xm)
+        // # poch() handles special cases for negative integers correctly
+        u[0] = poch(xm, xp-xm);
+        // # the coefficient may be inf or 0, meaning the transform or the
+        // # inverse transform, respectively, is singular
+    }
+    u
+}
+
+fn fhtq(a: Array1<f64>, u: ComplexArray1, inverse=False) -> Array1<f64> {
+    let n = a.len();
+
+    // # check for singular transform or singular inverse transform
+    if np.isinf(u[0]) and not inverse:
+        warn(f'singular transform; consider changing the bias')
+        # fix coefficient to obtain (potentially correct) transform anyway
+        u = u.copy()
+        u[0] = 0
+    elif u[0] == 0 and inverse:
+        warn(f'singular inverse transform; consider changing the bias')
+        # fix coefficient to obtain (potentially correct) inverse anyway
+        u = u.copy()
+        u[0] = np.inf
+
+    // # biased fast Hankel transform via real FFT
+    let arr = rfft(a, axis=-1);
+    if not inverse:
+        # forward transform
+        arr *= u
+    else:
+        # backward transform
+        arr /= u.conj()
+    arr = irfft(arr, n, axis=-1)
+    arr = arr[..., ::-1]
+    arr
 }
 
 /*
