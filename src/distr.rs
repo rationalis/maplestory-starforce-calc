@@ -1,9 +1,10 @@
 use crate::consts::*;
 use crate::prio::Prio;
 
-use std::cmp::{Ordering, PartialEq, Ord};
+use std::cmp::{Ord, Ordering, PartialEq};
 use std::hash::Hash;
 use std::ops::{Add, AddAssign, Mul, MulAssign};
+use std::os::raw;
 
 use ndarray::{Array, Array1};
 use noisy_float::types::R64;
@@ -17,16 +18,37 @@ use rustc_hash::FxHashMap;
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Distr {
     raw: FxHashMap<R64, R64>,
-    total: R64
+    total: R64,
 }
 
 impl Distr {
     pub fn zero() -> Distr {
-        Distr::from((f(0.0),f(1.0)))
+        Distr::from((f(0.0), f(1.0)))
+    }
+
+    pub fn implicit(&self) -> ImplicitDistr {
+        let mut imp = all_empty();
+        for (&val, &prob) in self.raw.iter() {
+            let (bin, _) = round_bucket(g(val));
+            imp.density[bin as usize] += g(prob);
+        }
+        imp
     }
 
     pub fn characteristic(&self) -> CharacteristicDistr {
-        unimplemented!()
+        self.implicit().fft()
+    }
+
+    pub fn star_factor_to_mesos(&self, level: i32) -> Vec<(u64, f64)> {
+        let level_factor: f64 = level.pow(3) as f64;
+        let mut vec = Vec::new();
+        for (&val, &prob) in self.raw.iter() {
+            let val_mesos = g(val) * level_factor * (*BASE_STAR_FACTOR as f64);
+            let val_mesos = val_mesos as u64;
+            let prob = g(prob);
+            vec.push((val_mesos, prob));
+        }
+        vec
     }
 }
 
@@ -39,7 +61,7 @@ impl AddAssign<(R64, R64)> for Distr {
 
 impl MulAssign<R64> for Distr {
     fn mul_assign(&mut self, rhs: R64) {
-        self.raw = self.raw.iter().map(|(&k,&v)| (k*rhs, v)).collect()
+        self.raw = self.raw.iter().map(|(&k, &v)| (k * rhs, v)).collect()
     }
 }
 
@@ -51,13 +73,7 @@ impl Ord for Distr {
 
 impl From<ImplicitDistr> for Distr {
     fn from(dist: ImplicitDistr) -> Self {
-        unimplemented!()
-    }
-}
-
-impl From<Distr> for Vec<(u64, f64)> {
-    fn from(dist: Distr) -> Self {
-        unimplemented!()
+        dist.explicit()
     }
 }
 
@@ -73,7 +89,7 @@ impl From<(R64, R64)> for Distr {
         map.insert(pair.0, pair.1);
         Self {
             raw: map,
-            total: pair.1
+            total: pair.1,
         }
     }
 }
@@ -86,12 +102,35 @@ impl PartialOrd for Distr {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ImplicitDistr {
-    density: Array1<f64>
+    density: Array1<f64>,
 }
 
 impl ImplicitDistr {
     pub fn shift(&self, c: f64) -> ImplicitDistr {
+        let mut shifted_density = Array1::<f64>::zeros(self.density.raw_dim());
+        for (bin, prob) in self.density.iter().enumerate() {
+            let (shifted_bin, _) = round_bucket(unbin(bin as u16) + c);
+            shifted_density[shifted_bin as usize] += prob;
+        }
+        Self {
+            density: shifted_density,
+        }
+    }
+
+    pub fn fft(&self) -> CharacteristicDistr {
         unimplemented!()
+    }
+
+    pub fn explicit(&self) -> Distr {
+        let mut raw = Default::default();
+        let mut total = 0.0;
+        for (bin, &prob) in self.density.iter().enumerate() {
+            merge_or_insert(&mut raw, f(unbin(bin as u16)), f(prob));
+        }
+        Distr {
+            raw,
+            total: f(total),
+        }
     }
 }
 
@@ -109,12 +148,16 @@ impl AddAssign<&ImplicitDistr> for ImplicitDistr {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct CharacteristicDistr {
-    density: Array1<f64>
+    density: Array1<f64>,
 }
 
 impl CharacteristicDistr {
     pub fn ifft(&self) -> ImplicitDistr {
         unimplemented!()
+    }
+
+    pub fn explicit(&self) -> Distr {
+        self.ifft().explicit()
     }
 }
 
@@ -123,7 +166,7 @@ impl Add for &CharacteristicDistr {
 
     fn add(self, rhs: Self) -> CharacteristicDistr {
         CharacteristicDistr {
-            density: &self.density * &rhs.density
+            density: &self.density * &rhs.density,
         }
     }
 }
@@ -153,7 +196,7 @@ pub fn unbin(u: u16) -> Meso {
 
 pub fn all_empty() -> ImplicitDistr {
     ImplicitDistr {
-        density: Array::zeros(NUM_BINS)
+        density: Array::zeros(NUM_BINS),
     }
 }
 
@@ -195,19 +238,6 @@ pub fn sim(probs: [f64; 4]) -> FxHashMap<(u8, u8), Distr> {
         }
     }
     successes
-}
-
-pub fn fftlog(d: Distr) -> Distr {
-    unimplemented!()
-}
-
-// pub fn convolve(d: &ImplicitDistr, d2: &ImplicitDistr) -> ImplicitDistr {
-//     unimplemented!()
-// }
-
-/// Sum two explicit distributions via convolution.
-pub fn convolve_explicit(d: &Distr, d2: &Distr) -> Distr {
-    unimplemented!()
 }
 
 /*

@@ -56,7 +56,7 @@ pub fn calculate3(level: i32, safeguard: bool) -> Vec<((Star, Star), Vec<(u64, f
                 let dist1 = &table[&(start, start + 1)];
                 let dist2 = &table[&(start + 1, target)];
                 // TODO: with a separate implicits table, we can replace this with a normal conv
-                let dist = distr::convolve_explicit(dist1, dist2);
+                let dist = (&dist1.characteristic() + &dist2.characteristic()).explicit();
                 update(&mut table, start, target, dist);
                 continue;
             }
@@ -145,6 +145,6 @@ pub fn calculate3(level: i32, safeguard: bool) -> Vec<((Star, Star), Vec<(u64, f
         }
     }
     table.into_iter()
-        .map(|(k, v)| (k, v.into()))
+        .map(|(k, v)| (k, v.star_factor_to_mesos(level)))
         .collect()
 }
